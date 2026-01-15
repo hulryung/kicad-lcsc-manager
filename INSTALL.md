@@ -50,7 +50,7 @@ If you're unsure of the exact path:
 
 ```bash
 cd [your-kicad-plugins-directory]
-git clone https://github.com/yourusername/kicad-lcsc-manager.git
+git clone https://github.com/hulryung/kicad-lcsc-manager.git
 ```
 
 **Option B: Download and Extract**

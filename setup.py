@@ -17,12 +17,12 @@ if requirements_file.exists():
 setup(
     name="kicad-lcsc-manager",
     version="0.1.0",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="hulryung",
+    author_email="hulryung@users.noreply.github.com",
     description="KiCad plugin for importing components from LCSC/EasyEDA and JLCPCB",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/kicad-lcsc-manager",
+    url="https://github.com/hulryung/kicad-lcsc-manager",
     packages=find_packages(where="plugins"),
     package_dir={"": "plugins"},
     classifiers=[
@@ -51,7 +51,7 @@ setup(
     },
     keywords="kicad pcb eda lcsc jlcpcb easyeda electronics",
     project_urls={
-        "Bug Reports": "https://github.com/yourusername/kicad-lcsc-manager/issues",
-        "Source": "https://github.com/yourusername/kicad-lcsc-manager",
+        "Bug Reports": "https://github.com/hulryung/kicad-lcsc-manager/issues",
+        "Source": "https://github.com/hulryung/kicad-lcsc-manager",
     },
 )

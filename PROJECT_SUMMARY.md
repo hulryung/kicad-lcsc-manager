@@ -229,7 +229,7 @@ MIT License - See [LICENSE](LICENSE) file
 
 ## Support
 
-- GitHub Issues: [Report bugs or request features](https://github.com/yourusername/kicad-lcsc-manager/issues)
+- GitHub Issues: [Report bugs or request features](https://github.com/hulryung/kicad-lcsc-manager/issues)
 - Logs: Check `~/.kicad/lcsc_manager/logs/lcsc_manager.log` for errors
 - KiCad Forums: [KiCad.info](https://forum.kicad.info/)
 

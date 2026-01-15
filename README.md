@@ -49,7 +49,7 @@ A KiCad plugin that allows you to search and import electronic components from L
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/kicad-lcsc-manager.git
+git clone https://github.com/hulryung/kicad-lcsc-manager.git
 cd kicad-lcsc-manager
 
 # Install dependencies
@@ -86,4 +86,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Support
 
-If you encounter any issues or have questions, please [open an issue](https://github.com/yourusername/kicad-lcsc-manager/issues) on GitHub.
+If you encounter any issues or have questions, please [open an issue](https://github.com/hulryung/kicad-lcsc-manager/issues) on GitHub.

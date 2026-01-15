@@ -6,7 +6,7 @@ directly into KiCad projects with symbols, footprints, and 3D models.
 """
 
 __version__ = "0.1.0"
-__author__ = "Your Name"
+__author__ = "hulryung"
 __license__ = "MIT"
 
 # Register the plugin with KiCad
