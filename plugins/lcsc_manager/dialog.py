@@ -28,7 +28,7 @@ class LCSCManagerDialog(wx.Dialog):
         super().__init__(
             parent,
             title="LCSC Manager - Import Components",
-            size=(600, 400),
+            size=(700, 550),
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER
         )
 
@@ -97,7 +97,7 @@ class LCSCManagerDialog(wx.Dialog):
         self.info_text = wx.TextCtrl(
             self,
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
-            size=(-1, 150)
+            size=(-1, 200)
         )
         self.info_text.SetValue("Enter an LCSC part number and click Search to view component details.")
 
