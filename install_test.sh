@@ -49,10 +49,10 @@ KICAD_PYTHON="/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework
 
 if [ -f "$KICAD_PYTHON" ]; then
     echo "Using KiCad's Python: $KICAD_PYTHON"
-    "$KICAD_PYTHON" -m pip install --user requests pydantic
+    "$KICAD_PYTHON" -m pip install --user requests pydantic KicadModTree
 else
     echo "Using system Python"
-    pip3 install --user requests pydantic
+    pip3 install --user requests pydantic KicadModTree
 fi
 
 echo ""

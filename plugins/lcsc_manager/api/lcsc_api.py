@@ -479,13 +479,8 @@ class LCSCAPIClient:
         if not component:
             return None
 
-        # The EasyEDA data is already included in the component
-        # The symbol_uuids and footprint_uuid are ready to use
-        component["easyeda_data"] = {
-            "symbol_uuids": component.get("symbol_uuids", []),
-            "footprint_uuid": component.get("footprint_uuid"),
-        }
-
+        # The EasyEDA data is already included in the component from search_component
+        # No need to modify it - it already contains the full API response
         return component
 
 

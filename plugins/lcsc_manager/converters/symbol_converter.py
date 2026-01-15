@@ -2,10 +2,12 @@
 Symbol Converter - Convert EasyEDA symbols to KiCad format
 
 This module converts EasyEDA symbol JSON data to KiCad symbol format (.kicad_sym)
+Based on JLC2KiCad_lib by TousstNicolas
 """
 from typing import Dict, Any, Optional
 from pathlib import Path
 from ..utils.logger import get_logger
+from .jlc2kicad import symbol_handlers
 
 logger = get_logger()
 
@@ -26,7 +28,7 @@ class SymbolConverter:
         Convert EasyEDA symbol data to KiCad symbol format
 
         Args:
-            easyeda_data: Raw EasyEDA symbol data (JSON)
+            easyeda_data: Raw EasyEDA symbol data (complete API response)
             component_info: Component metadata (name, description, etc.)
 
         Returns:
@@ -39,22 +41,15 @@ class SymbolConverter:
 
         try:
             # Extract symbol data from EasyEDA format
-            # EasyEDA uses a custom JSON format with shape definitions
             symbol_name = self._get_symbol_name(component_info)
-            reference = self._get_reference_designator(component_info)
+            reference = component_info.get("prefix", "U").replace("?", "")
 
-            # TODO: Implement actual conversion logic
-            # This requires parsing EasyEDA's shape format and converting to KiCad S-expressions
-            # For now, create a placeholder symbol
-
-            kicad_symbol = self._create_placeholder_symbol(
+            # Create symbol using JLC2KiCad handlers
+            kicad_symbol = self._create_symbol_from_easyeda(
+                easyeda_data=easyeda_data,
                 symbol_name=symbol_name,
                 reference=reference,
-                value=component_info.get("name", "Unknown"),
-                description=component_info.get("description", ""),
-                datasheet=component_info.get("datasheet", ""),
-                manufacturer=component_info.get("manufacturer", ""),
-                lcsc_id=component_info.get("lcsc_id", "")
+                component_info=component_info
             )
 
             self.logger.info(f"Symbol conversion completed: {symbol_name}")
@@ -62,7 +57,115 @@ class SymbolConverter:
 
         except Exception as e:
             self.logger.error(f"Symbol conversion failed: {e}", exc_info=True)
-            raise ValueError(f"Failed to convert symbol: {e}")
+            # Fallback to placeholder
+            self.logger.warning("Falling back to placeholder symbol")
+            return self._create_placeholder_symbol(
+                symbol_name=self._get_symbol_name(component_info),
+                reference=component_info.get("prefix", "U").replace("?", ""),
+                value=component_info.get("name", "Unknown"),
+                description=component_info.get("description", ""),
+                datasheet=component_info.get("datasheet", ""),
+                manufacturer=component_info.get("manufacturer", ""),
+                lcsc_id=component_info.get("lcsc_id", "")
+            )
+
+    def _create_symbol_from_easyeda(
+        self,
+        easyeda_data: Dict[str, Any],
+        symbol_name: str,
+        reference: str,
+        component_info: Dict[str, Any]
+    ) -> str:
+        """
+        Create KiCad symbol from EasyEDA data using handlers
+
+        Args:
+            easyeda_data: Complete EasyEDA API response
+            symbol_name: Symbol name
+            reference: Reference designator
+            component_info: Component metadata
+
+        Returns:
+            KiCad symbol S-expression
+        """
+        class KicadSymbol:
+            """Helper class to accumulate symbol drawing elements"""
+            def __init__(self):
+                self.drawing = ""
+                self.pinNamesHide = "(pin_names hide)"
+                self.pinNumbersHide = "(pin_numbers hide)"
+
+        kicad_symbol = KicadSymbol()
+
+        # Extract shape data from EasyEDA response
+        if "dataStr" not in easyeda_data or "shape" not in easyeda_data["dataStr"]:
+            raise ValueError("No shape data in EasyEDA response")
+
+        symbol_shape = easyeda_data["dataStr"]["shape"]
+        translation = (
+            float(easyeda_data["dataStr"]["head"]["x"]),
+            float(easyeda_data["dataStr"]["head"]["y"])
+        )
+
+        # Add drawing start
+        kicad_symbol.drawing += f'\n    (symbol "{symbol_name}_1"'
+
+        # Parse each shape element using handlers
+        for line in symbol_shape:
+            args = [i for i in line.split("~")]
+            model = args[0]
+
+            if model in symbol_handlers.handlers:
+                try:
+                    symbol_handlers.handlers[model](
+                        data=args[1:],
+                        translation=translation,
+                        kicad_symbol=kicad_symbol
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Failed to parse shape element {model}: {e}")
+            else:
+                self.logger.debug(f"Unhandled symbol shape type: {model}")
+
+        kicad_symbol.drawing += "\n    )"
+
+        # Build complete symbol with properties
+        lcsc_id = component_info.get("lcsc_id", "")
+        datasheet = component_info.get("datasheet", "")
+        description = component_info.get("description", "")
+        manufacturer = component_info.get("manufacturer", "")
+        footprint_name = ""  # Will be set by library manager
+
+        complete_symbol = f'''(kicad_symbol_lib (version 20211014) (generator kicad_lcsc_manager)
+  (symbol "{symbol_name}" {kicad_symbol.pinNamesHide} {kicad_symbol.pinNumbersHide} (in_bom yes) (on_board yes)
+    (property "Reference" "{reference}" (id 0) (at 0 1.27 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "{symbol_name}" (id 1) (at 0 -2.54 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "{footprint_name}" (id 2) (at 0 -10.16 0)
+      (effects (font (size 1.27 1.27) italic) hide)
+    )
+    (property "Datasheet" "{datasheet}" (id 3) (at -2.286 0.127 0)
+      (effects (font (size 1.27 1.27)) (justify left) hide)
+    )
+    (property "ki_keywords" "{lcsc_id}" (id 4) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "LCSC" "{lcsc_id}" (id 5) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Manufacturer" "{manufacturer}" (id 6) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "ki_description" "{description}" (id 7) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide)
+    ){kicad_symbol.drawing}
+  )
+)
+'''
+        return complete_symbol
 
     def _get_symbol_name(self, component_info: Dict[str, Any]) -> str:
         """
@@ -77,40 +180,18 @@ class SymbolConverter:
         lcsc_id = component_info.get("lcsc_id", "Unknown")
         name = component_info.get("name", lcsc_id)
 
-        # Sanitize name for KiCad
-        name = name.replace(" ", "_").replace("/", "_").replace("\\", "_")
+        # Sanitize name for KiCad (same as JLC2KiCad_lib)
+        name = (name
+                .replace(" ", "_")
+                .replace(".", "_")
+                .replace("/", "{slash}")
+                .replace("\\", "{backslash}")
+                .replace("<", "{lt}")
+                .replace(">", "{gt}")
+                .replace(":", "{colon}")
+                .replace('"', "{dblquote}"))
 
         return f"{lcsc_id}_{name}"
-
-    def _get_reference_designator(self, component_info: Dict[str, Any]) -> str:
-        """
-        Determine reference designator based on component type
-
-        Args:
-            component_info: Component metadata
-
-        Returns:
-            Reference designator (e.g., "R", "C", "U")
-        """
-        category = component_info.get("category", "").lower()
-
-        # Simple heuristic based on category
-        if "resistor" in category:
-            return "R"
-        elif "capacitor" in category:
-            return "C"
-        elif "inductor" in category:
-            return "L"
-        elif "diode" in category:
-            return "D"
-        elif "transistor" in category or "mosfet" in category:
-            return "Q"
-        elif "ic" in category or "chip" in category:
-            return "U"
-        elif "connector" in category:
-            return "J"
-        else:
-            return "U"  # Default to generic component
 
     def _create_placeholder_symbol(
         self,
@@ -123,10 +204,7 @@ class SymbolConverter:
         lcsc_id: str
     ) -> str:
         """
-        Create a placeholder KiCad symbol
-
-        This creates a simple rectangular symbol with properties.
-        Full conversion from EasyEDA format will be implemented later.
+        Create a placeholder KiCad symbol (fallback)
 
         Args:
             symbol_name: Symbol identifier
@@ -140,7 +218,6 @@ class SymbolConverter:
         Returns:
             KiCad symbol S-expression
         """
-        # KiCad 6.0+ symbol format (S-expression)
         symbol = f'''(kicad_symbol_lib (version 20211014) (generator kicad_lcsc_manager)
   (symbol "{symbol_name}" (pin_names (offset 1.016)) (in_bom yes) (on_board yes)
     (property "Reference" "{reference}" (id 0) (at 0 5.08 0)
