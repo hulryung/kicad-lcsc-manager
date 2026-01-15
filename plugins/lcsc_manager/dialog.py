@@ -77,7 +77,9 @@ class LCSCManagerDialog(wx.Dialog):
         lcsc_panel_sizer.Add(lcsc_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
 
         self.lcsc_input = wx.TextCtrl(lcsc_panel, size=(200, -1))
-        self.lcsc_input.SetHint("e.g., C2040")
+        self.lcsc_input.SetHint("e.g., C2040 or c2040")
+        self.lcsc_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
+        self.lcsc_input.Bind(wx.EVT_CHAR, self._on_char)
         lcsc_panel_sizer.Add(self.lcsc_input, 1, wx.EXPAND)
 
         search_btn = wx.Button(lcsc_panel, label="Search")
@@ -149,9 +151,21 @@ class LCSCManagerDialog(wx.Dialog):
         self.SetSizer(main_sizer)
         self.Layout()
 
+    def _on_char(self, event):
+        """Handle character input in LCSC ID field"""
+        keycode = event.GetKeyCode()
+
+        # Check for Enter key
+        if keycode == wx.WXK_RETURN or keycode == wx.WXK_NUMPAD_ENTER:
+            # Trigger search
+            self._on_search(event)
+        else:
+            # Allow normal character processing
+            event.Skip()
+
     def _on_search(self, event):
-        """Handle search button click"""
-        lcsc_id = self.lcsc_input.GetValue().strip()
+        """Handle search button click or Enter key"""
+        lcsc_id = self.lcsc_input.GetValue().strip().upper()  # Convert to uppercase
 
         if not lcsc_id:
             wx.MessageBox(
@@ -160,6 +174,9 @@ class LCSCManagerDialog(wx.Dialog):
                 wx.OK | wx.ICON_WARNING
             )
             return
+
+        # Update the input field with uppercase version
+        self.lcsc_input.SetValue(lcsc_id)
 
         logger.info(f"Searching for component: {lcsc_id}")
 
@@ -240,7 +257,7 @@ class LCSCManagerDialog(wx.Dialog):
 
     def _on_import(self, event):
         """Handle import button click"""
-        lcsc_id = self.lcsc_input.GetValue().strip()
+        lcsc_id = self.lcsc_input.GetValue().strip().upper()  # Convert to uppercase
 
         if not lcsc_id:
             wx.MessageBox(

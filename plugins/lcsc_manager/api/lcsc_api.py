@@ -142,7 +142,7 @@ class LCSCAPIClient:
                     # Create basic component info
                     component_data = {
                         "lcsc_id": lcsc_id,
-                        "name": lcsc_id,  # Will be updated from detail API if available
+                        "name": lcsc_id,
                         "description": f"JLCPCB Component {lcsc_id}",
                         "manufacturer": "Unknown",
                         "package": "Unknown",
@@ -156,13 +156,15 @@ class LCSCAPIClient:
                         "footprint_uuid": footprint_uuid,
                     }
 
-                    # Try to get additional details
+                    # Get detailed component info from each UUID
                     try:
-                        detail_data = self._get_component_details(lcsc_id)
-                        if detail_data:
-                            component_data.update(detail_data)
+                        if footprint_uuid:
+                            detail_data = self._get_component_details_from_uuid(footprint_uuid)
+                            if detail_data:
+                                component_data.update(detail_data)
+                                logger.info(f"Updated component with details: {detail_data.get('name')}")
                     except Exception as e:
-                        logger.warning(f"Could not fetch additional details: {e}")
+                        logger.warning(f"Could not fetch component details: {e}")
 
                     return component_data
 
@@ -173,19 +175,59 @@ class LCSCAPIClient:
             logger.error(f"Search failed for {lcsc_id}: {e}")
             raise LCSCAPIError(f"Search failed: {e}")
 
-    def _get_component_details(self, lcsc_id: str) -> Optional[Dict[str, Any]]:
+    def _get_component_details_from_uuid(self, component_uuid: str) -> Optional[Dict[str, Any]]:
         """
-        Get additional component details (optional, best effort)
+        Get detailed component information from EasyEDA using component UUID
 
         Args:
-            lcsc_id: LCSC part number
+            component_uuid: EasyEDA component UUID
 
         Returns:
-            Additional component data or None
+            Dictionary with detailed component info or None
         """
-        # Try to get more details from JLCPCB API or other sources
-        # This is optional and won't fail the main search
-        return None
+        try:
+            url = f"https://easyeda.com/api/components/{component_uuid}"
+
+            response = self._make_request(method="GET", url=url, params=None)
+
+            if response.get("success"):
+                result = response.get("result", {})
+
+                # Extract component details
+                title = result.get("title", "")
+                dataStr = result.get("dataStr", {})
+                head = dataStr.get("head", {})
+                c_para = head.get("c_para", {})
+
+                # Get package info (try multiple fields)
+                package = c_para.get("package") or \
+                         result.get("packageDetail", {}).get("package") or \
+                         c_para.get("pre", {}).get("package", "Unknown")
+
+                manufacturer = c_para.get("Manufacturer", "Unknown")
+                datasheet = c_para.get("link", "")
+
+                # Build detailed info
+                detail_data = {
+                    "name": title or "Unknown",
+                    "manufacturer": manufacturer,
+                    "package": package,
+                    "datasheet": datasheet,
+                }
+
+                # Try to extract description
+                if c_para.get("Supplier Part"):
+                    detail_data["description"] = f"{title} - {c_para.get('Supplier Part')}"
+                else:
+                    detail_data["description"] = title or "Electronic Component"
+
+                return detail_data
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to get component details from UUID {component_uuid}: {e}")
+            return None
 
     def _parse_lcsc_component(self, product: Dict) -> Dict[str, Any]:
         """
