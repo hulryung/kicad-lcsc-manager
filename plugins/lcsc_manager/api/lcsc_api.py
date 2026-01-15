@@ -106,7 +106,7 @@ class LCSCAPIClient:
 
     def search_component(self, lcsc_id: str) -> Optional[Dict[str, Any]]:
         """
-        Search for a component by LCSC part number
+        Search for a component by LCSC part number using EasyEDA API
 
         Args:
             lcsc_id: LCSC part number (e.g., "C2040")
@@ -120,26 +120,51 @@ class LCSCAPIClient:
         logger.info(f"Searching for component: {lcsc_id}")
 
         try:
-            # Try LCSC product search API
+            # Use EasyEDA API (same as JLC2KiCad_lib)
+            url = f"https://easyeda.com/api/products/{lcsc_id}/svgs"
+
             response = self._make_request(
                 method="GET",
-                url=self.LCSC_SEARCH_URL,
-                params={
-                    "keyword": lcsc_id,
-                    "currentPage": 1,
-                    "pageSize": 10
-                }
+                url=url,
+                params=None
             )
 
             # Parse response
-            if response.get("code") == 200 and response.get("result"):
-                products = response["result"].get("productList", [])
-                if products:
-                    # Find exact match
-                    for product in products:
-                        if product.get("productCode") == lcsc_id:
-                            logger.info(f"Found component: {lcsc_id}")
-                            return self._parse_lcsc_component(product)
+            if response.get("success"):
+                result = response.get("result", [])
+                if result:
+                    logger.info(f"Found component: {lcsc_id}")
+
+                    # Get component UUIDs
+                    symbol_uuids = [item.get("component_uuid") for item in result[:-1]]
+                    footprint_uuid = result[-1].get("component_uuid") if result else None
+
+                    # Create basic component info
+                    component_data = {
+                        "lcsc_id": lcsc_id,
+                        "name": lcsc_id,  # Will be updated from detail API if available
+                        "description": f"JLCPCB Component {lcsc_id}",
+                        "manufacturer": "Unknown",
+                        "package": "Unknown",
+                        "price": [],
+                        "stock": 0,
+                        "datasheet": "",
+                        "image": "",
+                        "category": "Electronic Component",
+                        "subcategory": "",
+                        "symbol_uuids": symbol_uuids,
+                        "footprint_uuid": footprint_uuid,
+                    }
+
+                    # Try to get additional details
+                    try:
+                        detail_data = self._get_component_details(lcsc_id)
+                        if detail_data:
+                            component_data.update(detail_data)
+                    except Exception as e:
+                        logger.warning(f"Could not fetch additional details: {e}")
+
+                    return component_data
 
             logger.warning(f"Component not found: {lcsc_id}")
             return None
@@ -147,6 +172,20 @@ class LCSCAPIClient:
         except Exception as e:
             logger.error(f"Search failed for {lcsc_id}: {e}")
             raise LCSCAPIError(f"Search failed: {e}")
+
+    def _get_component_details(self, lcsc_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get additional component details (optional, best effort)
+
+        Args:
+            lcsc_id: LCSC part number
+
+        Returns:
+            Additional component data or None
+        """
+        # Try to get more details from JLCPCB API or other sources
+        # This is optional and won't fail the main search
+        return None
 
     def _parse_lcsc_component(self, product: Dict) -> Dict[str, Any]:
         """
@@ -288,19 +327,17 @@ class LCSCAPIClient:
         """
         logger.info(f"Fetching complete data for: {lcsc_id}")
 
-        # Get basic component info from LCSC
+        # Get basic component info from EasyEDA
         component = self.search_component(lcsc_id)
         if not component:
             return None
 
-        # Try to get EasyEDA data if UUID is available
-        if component.get("easyeda_uuid"):
-            try:
-                easyeda_data = self.get_easyeda_component(component["easyeda_uuid"])
-                if easyeda_data:
-                    component["easyeda_data"] = easyeda_data
-            except Exception as e:
-                logger.warning(f"Failed to fetch EasyEDA data: {e}")
+        # The EasyEDA data is already included in the component
+        # The symbol_uuids and footprint_uuid are ready to use
+        component["easyeda_data"] = {
+            "symbol_uuids": component.get("symbol_uuids", []),
+            "footprint_uuid": component.get("footprint_uuid"),
+        }
 
         return component
 
