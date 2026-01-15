@@ -195,24 +195,49 @@ class LCSCManagerDialog(wx.Dialog):
                 info = []
                 info.append(f"LCSC Part Number: {component.get('lcsc_id', 'N/A')}")
                 info.append(f"Name: {component.get('name', 'N/A')}")
-                info.append(f"Description: {component.get('description', 'N/A')}")
-                info.append(f"Manufacturer: {component.get('manufacturer', 'N/A')}")
+
+                # Manufacturer info
+                manufacturer = component.get('manufacturer', 'N/A')
+                manufacturer_part = component.get('manufacturer_part', '')
+                if manufacturer_part:
+                    info.append(f"Manufacturer: {manufacturer} ({manufacturer_part})")
+                else:
+                    info.append(f"Manufacturer: {manufacturer}")
+
                 info.append(f"Package: {component.get('package', 'N/A')}")
-                info.append(f"Category: {component.get('category', 'N/A')}")
+
+                # JLCPCB Part Class
+                jlcpcb_class = component.get('jlcpcb_class', '')
+                if jlcpcb_class:
+                    info.append(f"JLCPCB Class: {jlcpcb_class}")
+
+                # Description (if different from name)
+                description = component.get('description', '')
+                if description and description != component.get('name'):
+                    info.append(f"Description: {description}")
 
                 # Stock info
                 stock = component.get('stock', 0)
-                info.append(f"Stock: {stock:,}")
+                if stock > 0:
+                    info.append(f"Stock: {stock:,} units")
 
                 # Pricing
                 prices = component.get('price', [])
-                if prices and isinstance(prices, list):
-                    info.append("\nPricing:")
-                    for price_tier in prices[:3]:  # Show first 3 tiers
+                if prices and isinstance(prices, list) and len(prices) > 0:
+                    info.append("\nPricing (per unit):")
+                    for price_tier in prices[:5]:  # Show first 5 tiers
                         if isinstance(price_tier, dict):
-                            qty = price_tier.get('qty', 0)
+                            qty_start = price_tier.get('qty', 0)
+                            qty_max = price_tier.get('qty_max')
                             price = price_tier.get('price', 0)
-                            info.append(f"  {qty}+ units: ${price:.4f}")
+
+                            # Format quantity range
+                            if qty_max is None:
+                                qty_range = f"{qty_start:,}+"
+                            else:
+                                qty_range = f"{qty_start:,}-{qty_max:,}"
+
+                            info.append(f"  {qty_range}: ${price:.4f}")
 
                 # Datasheet
                 datasheet = component.get('datasheet')

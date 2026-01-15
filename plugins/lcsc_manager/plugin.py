@@ -2,6 +2,7 @@
 Main LCSC Manager Plugin implementation
 """
 import pcbnew
+import wx
 import os
 from pathlib import Path
 from .utils.logger import get_logger
@@ -79,7 +80,7 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
             dialog = LCSCManagerDialog(None, project_path)
             result = dialog.ShowModal()
 
-            if result == pcbnew.wxID_OK:
+            if result == wx.ID_OK:
                 logger.info("Dialog completed successfully")
             else:
                 logger.info("Dialog cancelled")
