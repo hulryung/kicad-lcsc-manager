@@ -36,18 +36,34 @@ class SymbolPreviewRenderer:
             wx.Bitmap for display, or None if rendering fails
         """
         try:
+            self.logger.debug(f"Symbol render called, data keys: {list(easyeda_data.keys())}")
+
             # Extract symbol shape data
-            if "dataStr" not in easyeda_data or "shape" not in easyeda_data["dataStr"]:
-                self.logger.warning("No symbol shape data in EasyEDA response")
+            if "dataStr" not in easyeda_data:
+                self.logger.warning(f"No 'dataStr' in EasyEDA response. Available keys: {list(easyeda_data.keys())}")
                 return self._create_placeholder("No symbol data")
 
-            shape_array = easyeda_data["dataStr"]["shape"]
-            head = easyeda_data["dataStr"].get("head", {})
+            data_str = easyeda_data["dataStr"]
+            self.logger.debug(f"dataStr type: {type(data_str)}, keys: {list(data_str.keys()) if isinstance(data_str, dict) else 'not a dict'}")
+
+            if "shape" not in data_str:
+                self.logger.warning(f"No 'shape' in dataStr. Available keys: {list(data_str.keys())}")
+                return self._create_placeholder("No symbol data")
+
+            shape_array = data_str["shape"]
+            self.logger.debug(f"Shape array type: {type(shape_array)}, length: {len(shape_array) if isinstance(shape_array, list) else 'not a list'}")
+            if isinstance(shape_array, list) and len(shape_array) > 0:
+                self.logger.debug(f"First shape element: {shape_array[0][:100] if len(shape_array[0]) > 100 else shape_array[0]}")
+
+            head = data_str.get("head", {})
             translation = (float(head.get("x", 0)), float(head.get("y", 0)))
 
             # Parse shapes and calculate bounds
             shapes = self._parse_shapes(shape_array, translation)
+            self.logger.debug(f"Parsed {len(shapes)} shapes from {len(shape_array)} elements")
+
             if not shapes:
+                self.logger.warning(f"No shapes parsed from {len(shape_array)} shape elements")
                 return self._create_placeholder("Empty symbol")
 
             # Render to PIL image

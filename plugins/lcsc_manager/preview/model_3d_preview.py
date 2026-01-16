@@ -34,13 +34,17 @@ class Model3DPreviewRenderer:
             wx.Bitmap for display, or None if not available
         """
         try:
+            self.logger.debug(f"3D model render called, data keys: {list(easyeda_data.keys())}")
+
             # Try to get thumbnail URL from EasyEDA response
             thumb_url = easyeda_data.get("thumb")
+            self.logger.debug(f"Main thumb URL: {thumb_url}")
 
             if not thumb_url:
                 # Try packageDetail if main response doesn't have it
                 package_detail = easyeda_data.get("packageDetail", {})
                 thumb_url = package_detail.get("thumb")
+                self.logger.debug(f"PackageDetail thumb URL: {thumb_url}")
 
             if not thumb_url:
                 self.logger.debug("No 3D model thumbnail URL found")
@@ -48,7 +52,9 @@ class Model3DPreviewRenderer:
 
             # Convert relative URL to absolute URL
             if thumb_url.startswith("/"):
+                self.logger.debug(f"Converting relative URL to absolute: {thumb_url}")
                 thumb_url = "https://easyeda.com" + thumb_url
+                self.logger.debug(f"Absolute URL: {thumb_url}")
 
             # Download thumbnail
             return self._download_thumbnail(thumb_url)

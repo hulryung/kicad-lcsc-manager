@@ -42,23 +42,39 @@ class FootprintPreviewRenderer:
             wx.Bitmap for display, or None if rendering fails
         """
         try:
+            self.logger.debug(f"Footprint render called, data keys: {list(easyeda_data.keys())}")
+
             # Extract footprint shape data
             if "packageDetail" not in easyeda_data:
-                self.logger.warning("No packageDetail in EasyEDA response")
+                self.logger.warning(f"No 'packageDetail' in EasyEDA response. Available keys: {list(easyeda_data.keys())}")
                 return self._create_placeholder("No footprint data")
 
             package_detail = easyeda_data["packageDetail"]
-            if "dataStr" not in package_detail or "shape" not in package_detail["dataStr"]:
-                self.logger.warning("No footprint shape data")
+            self.logger.debug(f"packageDetail keys: {list(package_detail.keys()) if isinstance(package_detail, dict) else 'not a dict'}")
+
+            if "dataStr" not in package_detail:
+                self.logger.warning(f"No 'dataStr' in packageDetail. Available keys: {list(package_detail.keys())}")
+                return self._create_placeholder("No footprint data")
+
+            data_str = package_detail["dataStr"]
+            if "shape" not in data_str:
+                self.logger.warning(f"No 'shape' in dataStr. Available keys: {list(data_str.keys())}")
                 return self._create_placeholder("No shape data")
 
-            shape_array = package_detail["dataStr"]["shape"]
-            head = package_detail["dataStr"].get("head", {})
+            shape_array = data_str["shape"]
+            self.logger.debug(f"Shape array type: {type(shape_array)}, length: {len(shape_array) if isinstance(shape_array, list) else 'not a list'}")
+            if isinstance(shape_array, list) and len(shape_array) > 0:
+                self.logger.debug(f"First shape element: {shape_array[0][:100] if len(shape_array[0]) > 100 else shape_array[0]}")
+
+            head = data_str.get("head", {})
             translation = (float(head.get("x", 0)), float(head.get("y", 0)))
 
             # Parse shapes
             shapes = self._parse_shapes(shape_array, translation)
+            self.logger.debug(f"Parsed {len(shapes)} shapes from {len(shape_array)} elements")
+
             if not shapes:
+                self.logger.warning(f"No shapes parsed from {len(shape_array)} shape elements")
                 return self._create_placeholder("Empty footprint")
 
             # Render to PIL image
