@@ -448,12 +448,22 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
             if not component_data:
                 logger.warning(f"Failed to fetch component data for {lcsc_id}")
+                # Show placeholder for components not in EasyEDA
+                symbol_bitmap = self.symbol_renderer._create_placeholder("Not available\nin EasyEDA")
+                footprint_bitmap = self.footprint_renderer._create_placeholder("Not available\nin EasyEDA")
+                model_3d_bitmap = self.model_3d_renderer._create_placeholder("Not available\nin EasyEDA")
+                self._display_previews(symbol_bitmap, footprint_bitmap, model_3d_bitmap)
                 return
 
             # Extract EasyEDA data from component
             easyeda_data = component_data.get("easyeda_data")
             if not easyeda_data:
                 logger.warning(f"No EasyEDA data for {lcsc_id}")
+                # Show placeholder for components without EasyEDA data
+                symbol_bitmap = self.symbol_renderer._create_placeholder("No preview data")
+                footprint_bitmap = self.footprint_renderer._create_placeholder("No preview data")
+                model_3d_bitmap = self.model_3d_renderer._create_placeholder("No preview data")
+                self._display_previews(symbol_bitmap, footprint_bitmap, model_3d_bitmap)
                 return
 
             # Render previews

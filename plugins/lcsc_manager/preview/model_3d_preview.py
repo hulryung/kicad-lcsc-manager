@@ -46,6 +46,10 @@ class Model3DPreviewRenderer:
                 self.logger.debug("No 3D model thumbnail URL found")
                 return self._create_placeholder("3D model available\n(No preview)")
 
+            # Convert relative URL to absolute URL
+            if thumb_url.startswith("/"):
+                thumb_url = "https://easyeda.com" + thumb_url
+
             # Download thumbnail
             return self._download_thumbnail(thumb_url)
 
