@@ -7,6 +7,7 @@ Based on JLC2KiCad_lib by TousstNicolas
 from typing import Dict, Any, Optional
 from pathlib import Path
 from ..utils.logger import get_logger
+from ..utils.config import get_config
 from .jlc2kicad import symbol_handlers
 
 logger = get_logger()
@@ -18,6 +19,7 @@ class SymbolConverter:
     def __init__(self):
         """Initialize symbol converter"""
         self.logger = get_logger("symbol_converter")
+        self.config = get_config()
 
     def convert(
         self,
@@ -252,8 +254,9 @@ class SymbolConverter:
         footprint_name = f"{lcsc_id}_{package}"
 
         # KiCad footprint reference format: library_nickname:footprint_name
-        # The library nickname should match the fp-lib-table entry
-        return f"lcsc_footprints:{footprint_name}"
+        # Get library nickname from config (matches fp-lib-table entry)
+        lib_nickname = self.config.get("footprint_lib_nickname")
+        return f"{lib_nickname}:{footprint_name}"
 
     def _create_placeholder_symbol(
         self,

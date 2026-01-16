@@ -256,7 +256,7 @@ class LibraryManager:
         """Update sym-lib-table file"""
         lib_table_path = self.project_path.parent / "sym-lib-table"
 
-        lib_name = "lcsc_imported"
+        lib_name = self.config.get("symbol_lib_nickname")
         lib_path = "${KIPRJMOD}/libs/lcsc/symbols/lcsc_imported.kicad_sym"
 
         try:
@@ -300,7 +300,7 @@ class LibraryManager:
         """Update fp-lib-table file"""
         lib_table_path = self.project_path.parent / "fp-lib-table"
 
-        lib_name = "lcsc_footprints"
+        lib_name = self.config.get("footprint_lib_nickname")
         lib_path = "${KIPRJMOD}/libs/lcsc/footprints.pretty"
 
         try:

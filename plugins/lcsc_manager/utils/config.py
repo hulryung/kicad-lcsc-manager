@@ -15,7 +15,9 @@ class Config:
     DEFAULT_CONFIG = {
         "library_path": "libs/lcsc",
         "symbol_lib_name": "lcsc_imported.kicad_sym",
+        "symbol_lib_nickname": "lcsc_imported",
         "footprint_lib_name": "footprints.pretty",
+        "footprint_lib_nickname": "lcsc_footprints",
         "model_3d_path": "3dmodels",
         "api_timeout": 30,
         "download_timeout": 60,
@@ -75,7 +77,13 @@ class Config:
         Returns:
             Configuration value
         """
-        return self._config.get(key, default)
+        # First check user config, then DEFAULT_CONFIG, then provided default
+        if key in self._config:
+            return self._config[key]
+        elif key in self.DEFAULT_CONFIG:
+            return self.DEFAULT_CONFIG[key]
+        else:
+            return default
 
     def set(self, key: str, value: Any) -> None:
         """
