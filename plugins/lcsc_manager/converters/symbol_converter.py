@@ -254,8 +254,9 @@ class SymbolConverter:
         footprint_name = f"{lcsc_id}_{package}"
 
         # KiCad footprint reference format: library_nickname:footprint_name
-        # Get library nickname from config (matches fp-lib-table entry)
-        lib_nickname = self.config.get("footprint_lib_nickname")
+        # Get library nickname from component_info (set by library_manager from fp-lib-table)
+        # If not available, fall back to config default
+        lib_nickname = component_info.get("footprint_lib_nickname") or self.config.get("footprint_lib_nickname")
         return f"{lib_nickname}:{footprint_name}"
 
     def _create_placeholder_symbol(

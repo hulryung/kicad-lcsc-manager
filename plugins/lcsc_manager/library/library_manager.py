@@ -6,6 +6,7 @@ and managing library configuration
 """
 from typing import Dict, Any, Optional
 from pathlib import Path
+import re
 from ..utils.logger import get_logger
 from ..utils.config import get_config
 from ..converters.symbol_converter import SymbolConverter
@@ -65,6 +66,11 @@ class LibraryManager:
             Exception: If import fails
         """
         self.logger.info(f"Importing component: {component_info.get('lcsc_id')}")
+
+        # Find footprint library nickname from project's fp-lib-table
+        footprint_lib_nickname = self._get_footprint_lib_nickname()
+        component_info["footprint_lib_nickname"] = footprint_lib_nickname
+        self.logger.debug(f"Using footprint library nickname: {footprint_lib_nickname}")
 
         results = {
             "symbol": None,
@@ -354,3 +360,60 @@ class LibraryManager:
             "footprint_lib_exists": self.footprint_lib_path.exists(),
             "model_3d_path_exists": self.model_3d_path.exists(),
         }
+
+    def _get_footprint_lib_nickname(self) -> str:
+        """
+        Get footprint library nickname from project's fp-lib-table
+
+        Searches the fp-lib-table for a library entry that points to the
+        LCSC footprint library path and returns its nickname.
+
+        Returns:
+            Library nickname (e.g., "lcsc_footprints")
+            Falls back to config default if not found
+        """
+        lib_table_path = self.project_path.parent / "fp-lib-table"
+
+        # If fp-lib-table doesn't exist yet, return config default
+        if not lib_table_path.exists():
+            nickname = self.config.get("footprint_lib_nickname")
+            self.logger.debug(f"fp-lib-table not found, using config default: {nickname}")
+            return nickname
+
+        try:
+            # Read fp-lib-table
+            with open(lib_table_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Look for library entry that contains our footprint path
+            # Pattern: (lib (name "nickname")...(uri "path/footprints.pretty")...)
+            # We look for entries containing "footprints.pretty" in the URI
+            footprint_lib_name = self.config.get("footprint_lib_name")  # e.g., "footprints.pretty"
+
+            # Match: (lib (name "some_name")... anything ...(uri "...footprints.pretty")...)
+            # We use a more flexible pattern that handles variations
+            lines = content.split('\n')
+            current_lib_name = None
+
+            for line in lines:
+                # Check for lib name
+                name_match = re.search(r'\(name\s+"([^"]+)"', line)
+                if name_match:
+                    current_lib_name = name_match.group(1)
+
+                # Check if this line contains our footprint path
+                if current_lib_name and footprint_lib_name in line:
+                    self.logger.info(f"Found footprint library nickname in fp-lib-table: {current_lib_name}")
+                    return current_lib_name
+
+            # Not found in table, use config default
+            nickname = self.config.get("footprint_lib_nickname")
+            self.logger.debug(f"Footprint library not found in fp-lib-table, using config default: {nickname}")
+            return nickname
+
+        except Exception as e:
+            # On any error, fall back to config default
+            self.logger.warning(f"Failed to parse fp-lib-table: {e}")
+            nickname = self.config.get("footprint_lib_nickname")
+            self.logger.debug(f"Using config default: {nickname}")
+            return nickname
