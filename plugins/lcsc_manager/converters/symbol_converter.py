@@ -62,7 +62,7 @@ class SymbolConverter:
             return self._create_placeholder_symbol(
                 symbol_name=self._get_symbol_name(component_info),
                 reference=component_info.get("prefix", "U").replace("?", ""),
-                value=component_info.get("name", "Unknown"),
+                value=component_info.get("description", "Unknown"),
                 description=component_info.get("description", ""),
                 datasheet=component_info.get("datasheet", ""),
                 manufacturer=component_info.get("manufacturer", ""),
@@ -150,7 +150,7 @@ class SymbolConverter:
         (font (size 1.27 1.27))
       )
     )
-    (property "Value" "{symbol_name}"
+    (property "Value" "{description}"
       (at 0 -2.54 0)
       (effects
         (font (size 1.27 1.27))
