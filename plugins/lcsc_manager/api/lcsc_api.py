@@ -400,6 +400,52 @@ class LCSCAPIClient:
             logger.error(f"Failed to fetch EasyEDA component {uuid}: {e}")
             raise LCSCAPIError(f"EasyEDA fetch failed: {e}")
 
+    def advanced_search(
+        self,
+        component_name: str = "",
+        value: str = "",
+        package: str = "",
+        manufacturer: str = "",
+        page: int = 1
+    ) -> List[Dict[str, Any]]:
+        """
+        Advanced component search with multiple parameters
+
+        Args:
+            component_name: Component name or description
+            value: Component value (e.g., "10uF", "10k")
+            package: Package size (e.g., "0603", "SOT23")
+            manufacturer: Manufacturer name
+            page: Page number (default: 1)
+
+        Returns:
+            List of component data dictionaries
+
+        Raises:
+            LCSCAPIError: If search fails
+        """
+        # Build query string from non-empty parameters
+        query_parts = []
+        if component_name:
+            query_parts.append(component_name)
+        if value:
+            query_parts.append(value)
+        if package:
+            query_parts.append(package)
+        if manufacturer:
+            query_parts.append(manufacturer)
+
+        if not query_parts:
+            logger.warning("Advanced search called with no parameters")
+            return []
+
+        # Join parts with spaces
+        query = " ".join(query_parts)
+        logger.info(f"Advanced search query: {query}")
+
+        # Use existing search_easyeda method
+        return self.search_easyeda(query, page)
+
     def search_easyeda(self, query: str, page: int = 1) -> List[Dict[str, Any]]:
         """
         Search for components on EasyEDA

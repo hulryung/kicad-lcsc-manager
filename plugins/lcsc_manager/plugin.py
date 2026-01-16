@@ -73,11 +73,11 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
             project_path: Path to the current KiCad project
         """
         try:
-            # Import dialog here to avoid circular imports
-            from .dialog import LCSCManagerDialog
+            # Import advanced search dialog
+            from .dialog_search import LCSCManagerSearchDialog
 
             # Create and show dialog
-            dialog = LCSCManagerDialog(None, project_path)
+            dialog = LCSCManagerSearchDialog(None, str(project_path))
             result = dialog.ShowModal()
 
             if result == wx.ID_OK:
