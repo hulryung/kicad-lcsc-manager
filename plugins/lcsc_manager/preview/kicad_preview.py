@@ -80,8 +80,8 @@ class KiCadPreviewRenderer:
                     self.logger.warning("No SVG file generated")
                     return self._create_placeholder("No output generated")
 
-                # Convert SVG to bitmap
-                return self._svg_to_bitmap(svg_files[0])
+                # Convert SVG to bitmap (symbol)
+                return self._svg_to_bitmap(svg_files[0], scale=3.0, is_footprint=False)
 
         except subprocess.TimeoutExpired:
             self.logger.error("KiCad CLI timeout")
@@ -146,8 +146,8 @@ class KiCadPreviewRenderer:
                     self.logger.warning("No SVG file generated")
                     return self._create_placeholder("No output generated")
 
-                # Convert SVG to bitmap
-                return self._svg_to_bitmap(svg_files[0])
+                # Convert SVG to bitmap (footprint with higher zoom)
+                return self._svg_to_bitmap(svg_files[0], scale=3.0, is_footprint=True)
 
         except subprocess.TimeoutExpired:
             self.logger.error("KiCad CLI timeout")
@@ -156,28 +156,79 @@ class KiCadPreviewRenderer:
             self.logger.error(f"Footprint rendering failed: {e}", exc_info=True)
             return self._create_placeholder("Render error")
 
-    def _svg_to_bitmap(self, svg_path: Path) -> wx.Bitmap:
-        """Convert SVG file to wx.Bitmap"""
+    def _svg_to_bitmap(self, svg_path: Path, scale: float = 3.0, is_footprint: bool = False) -> wx.Bitmap:
+        """
+        Convert SVG file to wx.Bitmap with high quality
+
+        Args:
+            svg_path: Path to SVG file
+            scale: Scale factor for higher resolution (default 3.0 for crisp display)
+            is_footprint: If True, apply additional zoom for footprints
+
+        Returns:
+            wx.Bitmap
+        """
         try:
-            # Use cairosvg to convert SVG to PNG
+            # Use cairosvg to convert SVG to PNG at high resolution
             try:
                 import cairosvg
-                png_data = cairosvg.svg2png(url=str(svg_path))
+                import xml.etree.ElementTree as ET
+
+                # Parse SVG to get viewBox for intelligent scaling
+                tree = ET.parse(svg_path)
+                root = tree.getroot()
+                viewbox = root.get('viewBox')
+
+                # Calculate appropriate scale based on SVG dimensions
+                if viewbox and is_footprint:
+                    # For footprints, apply extra zoom
+                    parts = viewbox.split()
+                    if len(parts) == 4:
+                        svg_width = float(parts[2])
+                        svg_height = float(parts[3])
+                        # If footprint is very large (large PCB coordinates), zoom in more
+                        max_dim = max(svg_width, svg_height)
+                        if max_dim > 1000:
+                            # Large SVG coordinates, need more zoom
+                            scale = scale * 2.0
+                        self.logger.debug(f"Footprint SVG size: {svg_width}x{svg_height}, scale: {scale}")
+
+                # Convert to higher resolution for better quality
+                output_width = int(self.IMAGE_SIZE[0] * scale)
+                output_height = int(self.IMAGE_SIZE[1] * scale)
+
+                png_data = cairosvg.svg2png(
+                    url=str(svg_path),
+                    output_width=output_width,
+                    output_height=output_height
+                )
                 pil_image = Image.open(io.BytesIO(png_data))
+
+                # Crop to content (remove excess whitespace) for footprints
+                if is_footprint:
+                    # Convert to grayscale to find content bounds
+                    bbox = pil_image.convert('L').getbbox()
+                    if bbox:
+                        # Add small margin
+                        margin = int(20 * scale)
+                        bbox = (
+                            max(0, bbox[0] - margin),
+                            max(0, bbox[1] - margin),
+                            min(pil_image.width, bbox[2] + margin),
+                            min(pil_image.height, bbox[3] + margin)
+                        )
+                        pil_image = pil_image.crop(bbox)
+                        self.logger.debug(f"Cropped footprint to: {pil_image.size}")
+
+                # Scale to fit display size
+                pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
+
             except ImportError:
                 self.logger.warning("cairosvg not available, using PIL SVG fallback")
                 # Try PIL directly (limited SVG support)
                 pil_image = Image.open(svg_path)
-
-            # Resize to fit preview size while maintaining aspect ratio
-            pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
-
-            # Create centered image on white background
-            final_image = Image.new('RGB', self.IMAGE_SIZE, self.BACKGROUND_COLOR)
-            offset = (
-                (self.IMAGE_SIZE[0] - pil_image.size[0]) // 2,
-                (self.IMAGE_SIZE[1] - pil_image.size[1]) // 2
-            )
+                # Resize to fit preview size
+                pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
 
             # Handle RGBA images
             if pil_image.mode == 'RGBA':
@@ -188,6 +239,12 @@ class KiCadPreviewRenderer:
             elif pil_image.mode != 'RGB':
                 pil_image = pil_image.convert('RGB')
 
+            # Center on white background
+            final_image = Image.new('RGB', self.IMAGE_SIZE, self.BACKGROUND_COLOR)
+            offset = (
+                (self.IMAGE_SIZE[0] - pil_image.size[0]) // 2,
+                (self.IMAGE_SIZE[1] - pil_image.size[1]) // 2
+            )
             final_image.paste(pil_image, offset)
 
             # Convert to wx.Bitmap
