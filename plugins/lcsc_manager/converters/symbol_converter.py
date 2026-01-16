@@ -206,11 +206,11 @@ class SymbolConverter:
         Returns:
             Symbol name
         """
-        lcsc_id = component_info.get("lcsc_id", "Unknown")
-        name = component_info.get("name", lcsc_id)
+        # Use description (e.g., "RP2040") as the symbol name
+        description = component_info.get("description", "Unknown")
 
         # Sanitize name for KiCad (same as JLC2KiCad_lib)
-        name = (name
+        name = (description
                 .replace(" ", "_")
                 .replace(".", "_")
                 .replace("/", "{slash}")
@@ -220,7 +220,7 @@ class SymbolConverter:
                 .replace(":", "{colon}")
                 .replace('"', "{dblquote}"))
 
-        return f"{lcsc_id}_{name}"
+        return name
 
     def _create_placeholder_symbol(
         self,
