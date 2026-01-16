@@ -108,22 +108,35 @@ class SymbolPreviewRenderer:
         return [s for s in shapes if s is not None]
 
     def _parse_rectangle(self, args, translation):
-        """Parse rectangle: x, y, width, height, stroke_color, fill_color"""
+        """Parse rectangle: EasyEDA format: x~y~width~height~stroke~fill..."""
         if len(args) < 4:
             return None
 
         try:
-            x = self._mil_to_px(float(args[0]) - translation[0])
-            y = self._mil_to_px(float(args[1]) - translation[1])
-            width = self._mil_to_px(float(args[2]))
-            height = self._mil_to_px(float(args[3]))
+            # EasyEDA rectangle format: x~y~width~height~stroke_color~stroke_width~layer~fill~gge_id
+            # Skip empty args (consecutive tildes)
+            clean_args = [a for a in args if a]
+
+            if len(clean_args) < 4:
+                return None
+
+            x = self._mil_to_px(float(clean_args[0]) - translation[0])
+            y = self._mil_to_px(float(clean_args[1]) - translation[1])
+            width = self._mil_to_px(float(clean_args[2]))
+            height = self._mil_to_px(float(clean_args[3]))
+
+            # Check if filled (usually 7th or 8th parameter)
+            fill = False
+            if len(clean_args) > 7:
+                fill = clean_args[7] != 'none' and clean_args[7] != ''
 
             return {
                 'type': 'rectangle',
                 'coords': (x, y, x + width, y + height),
-                'fill': len(args) > 8 and args[8] != 'none'
+                'fill': fill
             }
-        except (ValueError, IndexError):
+        except (ValueError, IndexError) as e:
+            self.logger.debug(f"Failed to parse rectangle: {e}, args: {args[:8]}")
             return None
 
     def _parse_ellipse(self, args, translation):
@@ -146,31 +159,40 @@ class SymbolPreviewRenderer:
             return None
 
     def _parse_pin(self, args, translation):
-        """Parse pin: x, y, rotation, pin_type, pin_name, pin_number"""
-        if len(args) < 2:
+        """Parse pin: EasyEDA format: show~type~number~x~y~rotation~..."""
+        if len(args) < 5:
             return None
 
         try:
-            x = self._mil_to_px(float(args[0]) - translation[0])
-            y = self._mil_to_px(float(args[1]) - translation[1])
-            rotation = float(args[2]) if len(args) > 2 else 0
+            # EasyEDA pin format: show~type~number~x~y~rotation~gge_id~...
+            # args[0] = show/hide
+            # args[1] = type (1=in, 2=out, 3=i/o, etc)
+            # args[2] = pin number
+            # args[3] = x position
+            # args[4] = y position
+            # args[5] = rotation (0, 90, 180, 270)
+
+            x = self._mil_to_px(float(args[3]) - translation[0])
+            y = self._mil_to_px(float(args[4]) - translation[1])
+            rotation = float(args[5]) if len(args) > 5 else 0
 
             # Pin is drawn as a line
-            length = 40  # pixels
+            length = 20  # pixels (shorter for better visibility)
             if rotation == 0:  # Right
                 coords = (x, y, x + length, y)
             elif rotation == 90:  # Down
                 coords = (x, y, x, y + length)
             elif rotation == 180:  # Left
                 coords = (x, y, x - length, y)
-            else:  # Up
+            else:  # Up (270)
                 coords = (x, y, x, y - length)
 
             return {
                 'type': 'pin',
                 'coords': coords
             }
-        except (ValueError, IndexError):
+        except (ValueError, IndexError) as e:
+            self.logger.debug(f"Failed to parse pin: {e}, args: {args[:6]}")
             return None
 
     def _parse_polyline(self, args, translation):

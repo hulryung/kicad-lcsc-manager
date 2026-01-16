@@ -25,39 +25,33 @@ class Model3DPreviewRenderer:
 
     def render(self, easyeda_data: Dict[str, Any]) -> Optional[wx.Bitmap]:
         """
-        Download and display 3D model thumbnail
+        Display 3D model placeholder
 
         Args:
             easyeda_data: Complete EasyEDA API response
 
         Returns:
-            wx.Bitmap for display, or None if not available
+            wx.Bitmap placeholder (EasyEDA doesn't provide actual thumbnails)
         """
         try:
             self.logger.debug(f"3D model render called, data keys: {list(easyeda_data.keys())}")
 
-            # Try to get thumbnail URL from EasyEDA response
-            thumb_url = easyeda_data.get("thumb")
-            self.logger.debug(f"Main thumb URL: {thumb_url}")
+            # Check if 3D model exists
+            has_3d_model = False
+            package_detail = easyeda_data.get("packageDetail", {})
+            if package_detail:
+                data_str = package_detail.get("dataStr", {})
+                head = data_str.get("head", {})
+                c_para = head.get("c_para", {})
+                has_3d_model = "3DModel" in c_para and c_para["3DModel"]
 
-            if not thumb_url:
-                # Try packageDetail if main response doesn't have it
-                package_detail = easyeda_data.get("packageDetail", {})
-                thumb_url = package_detail.get("thumb")
-                self.logger.debug(f"PackageDetail thumb URL: {thumb_url}")
-
-            if not thumb_url:
-                self.logger.debug("No 3D model thumbnail URL found")
-                return self._create_placeholder("3D model available\n(No preview)")
-
-            # Convert relative URL to absolute URL
-            if thumb_url.startswith("/"):
-                self.logger.debug(f"Converting relative URL to absolute: {thumb_url}")
-                thumb_url = "https://easyeda.com" + thumb_url
-                self.logger.debug(f"Absolute URL: {thumb_url}")
-
-            # Download thumbnail
-            return self._download_thumbnail(thumb_url)
+            if has_3d_model:
+                model_name = c_para.get("3DModel", "")
+                self.logger.debug(f"3D model available: {model_name}")
+                return self._create_placeholder(f"3D Model\n{model_name}\n(Preview unavailable)")
+            else:
+                self.logger.debug("No 3D model found")
+                return self._create_placeholder("No 3D model")
 
         except Exception as e:
             self.logger.error(f"3D model preview failed: {e}", exc_info=True)
