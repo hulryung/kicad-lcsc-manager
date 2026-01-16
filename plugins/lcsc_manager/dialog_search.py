@@ -10,7 +10,8 @@ from pathlib import Path
 from .api.lcsc_api import get_api_client, LCSCAPIError
 from .library.library_manager import LibraryManager
 from .utils.logger import get_logger
-from .preview import SymbolPreviewRenderer, FootprintPreviewRenderer, Model3DPreviewRenderer
+from .preview import Model3DPreviewRenderer
+from .preview.kicad_preview import KiCadPreviewRenderer
 
 logger = get_logger()
 
@@ -36,9 +37,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self.api_client = get_api_client()
         self.library_manager = LibraryManager(self.project_path)
 
-        # Preview renderers
-        self.symbol_renderer = SymbolPreviewRenderer()
-        self.footprint_renderer = FootprintPreviewRenderer()
+        # Preview renderers - use KiCad native rendering
+        self.kicad_renderer = KiCadPreviewRenderer()
         self.model_3d_renderer = Model3DPreviewRenderer()
 
         # Data storage
@@ -449,8 +449,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
             if not component_data:
                 logger.warning(f"Failed to fetch component data for {lcsc_id}")
                 # Show placeholder for components not in EasyEDA
-                symbol_bitmap = self.symbol_renderer._create_placeholder("Not available\nin EasyEDA")
-                footprint_bitmap = self.footprint_renderer._create_placeholder("Not available\nin EasyEDA")
+                symbol_bitmap = self.kicad_renderer._create_placeholder("Not available\nin EasyEDA")
+                footprint_bitmap = self.kicad_renderer._create_placeholder("Not available\nin EasyEDA")
                 model_3d_bitmap = self.model_3d_renderer._create_placeholder("Not available\nin EasyEDA")
                 self._display_previews(symbol_bitmap, footprint_bitmap, model_3d_bitmap)
                 return
@@ -460,15 +460,15 @@ class LCSCManagerSearchDialog(wx.Dialog):
             if not easyeda_data:
                 logger.warning(f"No EasyEDA data for {lcsc_id}")
                 # Show placeholder for components without EasyEDA data
-                symbol_bitmap = self.symbol_renderer._create_placeholder("No preview data")
-                footprint_bitmap = self.footprint_renderer._create_placeholder("No preview data")
+                symbol_bitmap = self.kicad_renderer._create_placeholder("No preview data")
+                footprint_bitmap = self.kicad_renderer._create_placeholder("No preview data")
                 model_3d_bitmap = self.model_3d_renderer._create_placeholder("No preview data")
                 self._display_previews(symbol_bitmap, footprint_bitmap, model_3d_bitmap)
                 return
 
-            # Render previews
-            symbol_bitmap = self.symbol_renderer.render(easyeda_data)
-            footprint_bitmap = self.footprint_renderer.render(easyeda_data)
+            # Render previews using KiCad native rendering
+            symbol_bitmap = self.kicad_renderer.render_symbol(easyeda_data, component_data)
+            footprint_bitmap = self.kicad_renderer.render_footprint(easyeda_data, component_data)
             model_3d_bitmap = self.model_3d_renderer.render(easyeda_data)
 
             # Cache
