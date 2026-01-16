@@ -592,17 +592,36 @@ class LCSCAPIClient:
                 url_suffix = comp.get("urlSuffix", "")
                 lcsc_id = url_suffix.split("/")[-1] if "/" in url_suffix else ""
 
+                # Get price (first tier price)
+                prices = comp.get("componentPrices", [])
+                price = prices[0].get("productPrice", 0) if prices else 0
+
+                # Get package specification
+                package_spec = comp.get("componentSpecificationEn", "")
+
+                # Get library type (base = Basic, expand = Extended)
+                library_type = comp.get("componentLibraryType", "")
+                if library_type == "base":
+                    type_str = "Basic"
+                elif library_type == "expand":
+                    type_str = "Extended"
+                else:
+                    type_str = ""
+
                 # Create component data in format expected by dialog
                 result = {
                     "lcsc": {
                         "number": lcsc_id
                     },
                     "title": comp.get("erpComponentName", "Unknown"),
-                    "package": comp.get("componentTypeEn", ""),
-                    "description": comp.get("componentTypeEn", ""),
+                    "package": package_spec,  # Use componentSpecificationEn for package
+                    "description": comp.get("describe", ""),
                     "uuid": lcsc_id,  # Use LCSC ID as UUID for fetching later
                     "stockCount": comp.get("stockCount", 0),
                     "componentId": comp.get("componentId"),
+                    "price": price,  # Add price field
+                    "category": comp.get("componentTypeEn", ""),  # Component category
+                    "libraryType": type_str,  # Basic or Extended
                 }
                 results.append(result)
 

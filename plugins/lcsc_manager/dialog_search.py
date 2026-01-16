@@ -108,42 +108,25 @@ class LCSCManagerSearchDialog(wx.Dialog):
         panel = wx.Panel(self)
         sizer = wx.StaticBoxSizer(wx.VERTICAL, panel, "Search Filters")
 
-        # Create grid sizer for inputs (2 rows, 4 columns)
-        input_sizer = wx.FlexGridSizer(rows=2, cols=4, vgap=5, hgap=10)
+        # Create horizontal sizer for inputs
+        input_sizer = wx.FlexGridSizer(rows=1, cols=4, vgap=5, hgap=10)
         input_sizer.AddGrowableCol(1)
-        input_sizer.AddGrowableCol(3)
 
-        # Component name
-        input_sizer.Add(wx.StaticText(panel, label="Name:"),
+        # Search (supports name, value, LCSC ID)
+        input_sizer.Add(wx.StaticText(panel, label="Search:"),
                        0, wx.ALIGN_CENTER_VERTICAL)
-        self.name_input = wx.TextCtrl(panel, size=(150, -1), style=wx.TE_PROCESS_ENTER)
-        self.name_input.SetHint("e.g., RP2040, STM32")
+        self.name_input = wx.TextCtrl(panel, size=(200, -1), style=wx.TE_PROCESS_ENTER)
+        self.name_input.SetHint("Name, value, or LCSC ID (e.g., RP2040, 10uF, C2040)")
         self.name_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
         input_sizer.Add(self.name_input, 1, wx.EXPAND)
 
-        # Value
-        input_sizer.Add(wx.StaticText(panel, label="Value:"),
-                       0, wx.ALIGN_CENTER_VERTICAL)
-        self.value_input = wx.TextCtrl(panel, size=(150, -1), style=wx.TE_PROCESS_ENTER)
-        self.value_input.SetHint("e.g., 10uF, 10k")
-        self.value_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
-        input_sizer.Add(self.value_input, 1, wx.EXPAND)
-
-        # Package
+        # Package (optional)
         input_sizer.Add(wx.StaticText(panel, label="Package:"),
                        0, wx.ALIGN_CENTER_VERTICAL)
-        self.package_input = wx.TextCtrl(panel, size=(150, -1), style=wx.TE_PROCESS_ENTER)
-        self.package_input.SetHint("e.g., 0603, SOT23")
+        self.package_input = wx.TextCtrl(panel, size=(120, -1), style=wx.TE_PROCESS_ENTER)
+        self.package_input.SetHint("e.g., 0603, SOT23, LQFN (optional)")
         self.package_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
-        input_sizer.Add(self.package_input, 1, wx.EXPAND)
-
-        # Manufacturer
-        input_sizer.Add(wx.StaticText(panel, label="Manufacturer:"),
-                       0, wx.ALIGN_CENTER_VERTICAL)
-        self.manufacturer_input = wx.TextCtrl(panel, size=(150, -1), style=wx.TE_PROCESS_ENTER)
-        self.manufacturer_input.SetHint("e.g., Samsung, TI")
-        self.manufacturer_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
-        input_sizer.Add(self.manufacturer_input, 1, wx.EXPAND)
+        input_sizer.Add(self.package_input, 0, wx.EXPAND)
 
         sizer.Add(input_sizer, 0, wx.EXPAND | wx.ALL, 5)
 
@@ -173,14 +156,21 @@ class LCSCManagerSearchDialog(wx.Dialog):
         )
 
         # Columns
-        self.results_list.InsertColumn(0, "LCSC ID", width=100)
-        self.results_list.InsertColumn(1, "Name", width=200)
-        self.results_list.InsertColumn(2, "Package", width=80)
-        self.results_list.InsertColumn(3, "Manufacturer", width=150)
+        self.results_list.InsertColumn(0, "LCSC ID", width=80)
+        self.results_list.InsertColumn(1, "Name", width=150)
+        self.results_list.InsertColumn(2, "Package", width=90)
+        self.results_list.InsertColumn(3, "Price", width=60)
+        self.results_list.InsertColumn(4, "Stock", width=60)
+        self.results_list.InsertColumn(5, "Type", width=60)
 
-        # Bind selection event
+        # Bind selection and sort events
         self.results_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_result_selected)
         self.results_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_result_activated)
+        self.results_list.Bind(wx.EVT_LIST_COL_CLICK, self._on_column_click)
+
+        # Track sort column and direction
+        self.sort_column = -1
+        self.sort_reverse = False
 
         sizer.Add(self.results_list, 1, wx.EXPAND | wx.ALL, 5)
 
@@ -257,16 +247,14 @@ class LCSCManagerSearchDialog(wx.Dialog):
     def _on_search(self, event):
         """Handle search button click"""
         # Get search parameters
-        name = self.name_input.GetValue().strip()
-        value = self.value_input.GetValue().strip()
+        search_text = self.name_input.GetValue().strip()
         package = self.package_input.GetValue().strip()
-        manufacturer = self.manufacturer_input.GetValue().strip()
 
-        # Check if at least one parameter provided
-        if not any([name, value, package, manufacturer]):
+        # Check if at least search text is provided
+        if not search_text:
             wx.MessageBox(
-                "Please enter at least one search parameter.",
-                "No Search Terms",
+                "Please enter a search term.",
+                "No Search Term",
                 wx.OK | wx.ICON_WARNING
             )
             return
@@ -276,21 +264,21 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self.search_results = []
 
         # Perform search
-        self._perform_search(name, value, package, manufacturer, self.current_page)
+        self._perform_search(search_text, package, self.current_page)
 
-    def _perform_search(self, name, value, package, manufacturer, page):
+    def _perform_search(self, search_text, package, page):
         """Perform the actual search"""
         try:
             # Show progress
             self.results_list.DeleteAllItems()
             wx.BeginBusyCursor()
 
-            # Call API
+            # Call API - pass search_text as component_name, package as filter
             results = self.api_client.advanced_search(
-                component_name=name,
-                value=value,
+                component_name=search_text,
+                value="",  # Empty
                 package=package,
-                manufacturer=manufacturer,
+                manufacturer="",  # Empty
                 page=page
             )
 
@@ -341,36 +329,81 @@ class LCSCManagerSearchDialog(wx.Dialog):
             lcsc_id = result.get("lcsc", {}).get("number", result.get("uuid", ""))
             title = result.get("title", "Unknown")
             package = result.get("package", "")
+            price = result.get("price", 0)
+            stock_count = result.get("stockCount", 0)
+            library_type = result.get("libraryType", "")
 
-            # Try to extract package from title or description
-            if not package:
-                # EasyEDA results might have package in different field
-                desc = result.get("description", "")
-                if desc:
-                    package = desc.split()[-1] if desc else ""
+            # Format price
+            price_str = f"${price:.4f}" if price > 0 else "-"
 
-            manufacturer = ""  # EasyEDA search results don't always have manufacturer
+            # Format stock count
+            if stock_count > 10000:
+                stock_str = f"{stock_count//1000}k+"
+            elif stock_count > 0:
+                stock_str = str(stock_count)
+            else:
+                stock_str = "0"
 
             # Insert row
             self.results_list.InsertItem(index, lcsc_id)
             self.results_list.SetItem(index, 1, title)
             self.results_list.SetItem(index, 2, package)
-            self.results_list.SetItem(index, 3, manufacturer)
+            self.results_list.SetItem(index, 3, price_str)
+            self.results_list.SetItem(index, 4, stock_str)
+            self.results_list.SetItem(index, 5, library_type)
 
             # Store full result data
             self.results_list.SetItemData(index, index)
+
+    def _on_column_click(self, event):
+        """Handle column header click for sorting"""
+        col = event.GetColumn()
+
+        # Toggle sort direction if clicking same column
+        if self.sort_column == col:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_column = col
+            self.sort_reverse = False
+
+        # Sort results
+        self._sort_results(col, self.sort_reverse)
+
+        # Refresh display
+        self.results_list.DeleteAllItems()
+        self._populate_results_list()
+
+    def _sort_results(self, col, reverse=False):
+        """Sort search results by column"""
+        # Define sort keys for each column
+        def get_sort_key(result):
+            if col == 0:  # LCSC ID
+                return result.get("lcsc", {}).get("number", "")
+            elif col == 1:  # Name
+                return result.get("title", "").lower()
+            elif col == 2:  # Package
+                return result.get("package", "").lower()
+            elif col == 3:  # Price
+                return result.get("price", 0)
+            elif col == 4:  # Stock
+                return result.get("stockCount", 0)
+            elif col == 5:  # Type
+                # Sort Basic before Extended
+                lib_type = result.get("libraryType", "")
+                return 0 if lib_type == "Basic" else 1 if lib_type == "Extended" else 2
+            return ""
+
+        self.search_results.sort(key=get_sort_key, reverse=reverse)
 
     def _on_load_more(self, event):
         """Load more search results"""
         self.current_page += 1
 
         # Get current search parameters
-        name = self.name_input.GetValue().strip()
-        value = self.value_input.GetValue().strip()
+        search_text = self.name_input.GetValue().strip()
         package = self.package_input.GetValue().strip()
-        manufacturer = self.manufacturer_input.GetValue().strip()
 
-        self._perform_search(name, value, package, manufacturer, self.current_page)
+        self._perform_search(search_text, package, self.current_page)
 
     def _on_result_selected(self, event):
         """Handle result selection - load previews"""
