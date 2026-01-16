@@ -80,8 +80,8 @@ class KiCadPreviewRenderer:
                     self.logger.warning("No SVG file generated")
                     return self._create_placeholder("No output generated")
 
-                # Convert SVG to bitmap (symbol)
-                return self._svg_to_bitmap(svg_files[0], scale=3.0, is_footprint=False)
+                # Convert SVG to bitmap (symbol with high quality)
+                return self._svg_to_bitmap(svg_files[0], scale=5.0, is_footprint=False)
 
         except subprocess.TimeoutExpired:
             self.logger.error("KiCad CLI timeout")
@@ -147,7 +147,7 @@ class KiCadPreviewRenderer:
                     return self._create_placeholder("No output generated")
 
                 # Convert SVG to bitmap (footprint with higher zoom)
-                return self._svg_to_bitmap(svg_files[0], scale=3.0, is_footprint=True)
+                return self._svg_to_bitmap(svg_files[0], scale=5.0, is_footprint=True)
 
         except subprocess.TimeoutExpired:
             self.logger.error("KiCad CLI timeout")
@@ -156,13 +156,13 @@ class KiCadPreviewRenderer:
             self.logger.error(f"Footprint rendering failed: {e}", exc_info=True)
             return self._create_placeholder("Render error")
 
-    def _svg_to_bitmap(self, svg_path: Path, scale: float = 3.0, is_footprint: bool = False) -> wx.Bitmap:
+    def _svg_to_bitmap(self, svg_path: Path, scale: float = 5.0, is_footprint: bool = False) -> wx.Bitmap:
         """
         Convert SVG file to wx.Bitmap with high quality
 
         Args:
             svg_path: Path to SVG file
-            scale: Scale factor for higher resolution (default 3.0 for crisp display)
+            scale: Scale factor for higher resolution (default 5.0 for very crisp display)
             is_footprint: If True, apply additional zoom for footprints
 
         Returns:
@@ -173,6 +173,7 @@ class KiCadPreviewRenderer:
             try:
                 import cairosvg
                 import xml.etree.ElementTree as ET
+                from PIL import ImageFilter, ImageEnhance
 
                 # Parse SVG to get viewBox for intelligent scaling
                 tree = ET.parse(svg_path)
@@ -220,8 +221,15 @@ class KiCadPreviewRenderer:
                         pil_image = pil_image.crop(bbox)
                         self.logger.debug(f"Cropped footprint to: {pil_image.size}")
 
-                # Scale to fit display size
+                # Scale to fit display size with high quality
                 pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
+
+                # Apply sharpening for crisp edges
+                pil_image = pil_image.filter(ImageFilter.SHARPEN)
+
+                # Slightly increase contrast for better visibility
+                enhancer = ImageEnhance.Contrast(pil_image)
+                pil_image = enhancer.enhance(1.1)
 
             except ImportError:
                 self.logger.warning("cairosvg not available, using PIL SVG fallback")

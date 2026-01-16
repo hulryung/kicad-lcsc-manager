@@ -51,7 +51,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self._create_ui()
 
         # Set size and center
-        self.SetSize((1100, 700))
+        self.SetSize((1400, 900))
+        self.SetMinSize((1200, 800))
         self.CenterOnParent()
 
     def _create_ui(self):
@@ -84,8 +85,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Right panel: Preview
         right_panel = self._create_preview_panel(splitter)
 
-        # Split horizontally (left/right) - give more space to results list
-        splitter.SplitVertically(left_panel, right_panel, 620)
+        # Split horizontally (left/right) - balanced split for good visibility
+        splitter.SplitVertically(left_panel, right_panel, 700)
 
         main_sizer.Add(splitter, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
