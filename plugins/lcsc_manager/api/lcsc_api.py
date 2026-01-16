@@ -35,9 +35,14 @@ class LCSCAPIClient:
         """Initialize LCSC API client"""
         self.config = get_config()
         self.session = requests.Session()
+        # Use realistic browser headers to avoid API blocking
         self.session.headers.update({
-            'User-Agent': 'KiCad-LCSC-Manager/0.1.0',
-            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9,ko;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://jlcpcb.com/',
+            'Origin': 'https://jlcpcb.com',
         })
         self.last_request_time = 0
 
@@ -82,11 +87,17 @@ class LCSCAPIClient:
         try:
             logger.debug(f"{method} {url} params={params}")
 
+            # Add Content-Type for POST requests with JSON data
+            headers = {}
+            if method.upper() == "POST" and json_data:
+                headers['Content-Type'] = 'application/json;charset=UTF-8'
+
             response = self.session.request(
                 method=method,
                 url=url,
                 params=params,
                 json=json_data,
+                headers=headers,
                 timeout=timeout
             )
 
