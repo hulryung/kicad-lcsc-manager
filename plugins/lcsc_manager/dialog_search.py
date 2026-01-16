@@ -116,7 +116,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Component name
         input_sizer.Add(wx.StaticText(panel, label="Name:"),
                        0, wx.ALIGN_CENTER_VERTICAL)
-        self.name_input = wx.TextCtrl(panel, size=(150, -1))
+        self.name_input = wx.TextCtrl(panel, size=(150, -1), style=wx.TE_PROCESS_ENTER)
         self.name_input.SetHint("e.g., RP2040, STM32")
         self.name_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
         input_sizer.Add(self.name_input, 1, wx.EXPAND)
@@ -124,7 +124,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Value
         input_sizer.Add(wx.StaticText(panel, label="Value:"),
                        0, wx.ALIGN_CENTER_VERTICAL)
-        self.value_input = wx.TextCtrl(panel, size=(150, -1))
+        self.value_input = wx.TextCtrl(panel, size=(150, -1), style=wx.TE_PROCESS_ENTER)
         self.value_input.SetHint("e.g., 10uF, 10k")
         self.value_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
         input_sizer.Add(self.value_input, 1, wx.EXPAND)
@@ -132,7 +132,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Package
         input_sizer.Add(wx.StaticText(panel, label="Package:"),
                        0, wx.ALIGN_CENTER_VERTICAL)
-        self.package_input = wx.TextCtrl(panel, size=(150, -1))
+        self.package_input = wx.TextCtrl(panel, size=(150, -1), style=wx.TE_PROCESS_ENTER)
         self.package_input.SetHint("e.g., 0603, SOT23")
         self.package_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
         input_sizer.Add(self.package_input, 1, wx.EXPAND)
@@ -140,7 +140,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Manufacturer
         input_sizer.Add(wx.StaticText(panel, label="Manufacturer:"),
                        0, wx.ALIGN_CENTER_VERTICAL)
-        self.manufacturer_input = wx.TextCtrl(panel, size=(150, -1))
+        self.manufacturer_input = wx.TextCtrl(panel, size=(150, -1), style=wx.TE_PROCESS_ENTER)
         self.manufacturer_input.SetHint("e.g., Samsung, TI")
         self.manufacturer_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
         input_sizer.Add(self.manufacturer_input, 1, wx.EXPAND)
