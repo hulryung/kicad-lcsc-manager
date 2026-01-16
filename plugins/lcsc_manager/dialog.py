@@ -334,12 +334,18 @@ class LCSCManagerDialog(wx.Dialog):
                     )
                     return
 
-            progress.Update(20, "Fetching complete component data...")
+            progress.Update(20, "Preparing component data...")
 
-            # Get complete component data (including EasyEDA data if available)
-            complete_data = self.api_client.get_component_complete(lcsc_id)
-            if not complete_data:
-                complete_data = self.component_data
+            # Use already searched component data instead of fetching again
+            # This avoids potential JLCPCB API failures on second call
+            complete_data = self.component_data
+
+            # Ensure we have datasheet - if not, try to fetch complete data
+            if not complete_data.get('datasheet'):
+                logger.info("No datasheet in cached data, fetching complete data...")
+                fetched_data = self.api_client.get_component_complete(lcsc_id)
+                if fetched_data and fetched_data.get('datasheet'):
+                    complete_data = fetched_data
 
             # Extract EasyEDA data (will be empty dict if not available)
             easyeda_data = complete_data.get('easyeda_data', {})
