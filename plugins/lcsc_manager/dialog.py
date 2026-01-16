@@ -375,23 +375,13 @@ class LCSCManagerDialog(wx.Dialog):
                 if results.get("footprint"):
                     message_parts.append(f"✓ Footprint: {results['footprint']}")
                 if results.get("model_3d"):
-                    models = results['model_3d']
-                    if isinstance(models, dict):
-                        message_parts.append(f"✓ 3D Models: {', '.join(models.keys())}")
-                    else:
-                        message_parts.append(f"✓ 3D Model: {models}")
+                    message_parts.append(f"✓ 3D Model")
 
-                lib_path = self.config.get_library_path(self.project_path)
-                message_parts.append(f"\nComponents saved to:\n{lib_path}")
-
+                # Only show warnings if any
                 if results.get("errors"):
                     message_parts.append("\nWarnings:")
                     for error in results["errors"]:
                         message_parts.append(f"  - {error}")
-
-                message_parts.append("\nNote: Current implementation uses placeholder converters.")
-                message_parts.append("For production use, integrate with easyeda2kicad library")
-                message_parts.append("or implement full EasyEDA format parsing.")
 
                 wx.MessageBox(
                     "\n".join(message_parts),
