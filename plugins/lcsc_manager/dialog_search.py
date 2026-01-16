@@ -199,7 +199,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Symbol preview tab
         symbol_panel = wx.Panel(self.preview_notebook)
         symbol_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.symbol_preview = wx.StaticBitmap(symbol_panel)
+        self.symbol_preview = wx.StaticBitmap(symbol_panel, size=(400, 400))
+        self.symbol_preview.SetMinSize((400, 400))
         symbol_sizer.Add(self.symbol_preview, 1, wx.ALIGN_CENTER | wx.ALL, 10)
         symbol_panel.SetSizer(symbol_sizer)
         self.preview_notebook.AddPage(symbol_panel, "Symbol")
@@ -207,7 +208,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Footprint preview tab
         footprint_panel = wx.Panel(self.preview_notebook)
         footprint_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.footprint_preview = wx.StaticBitmap(footprint_panel)
+        self.footprint_preview = wx.StaticBitmap(footprint_panel, size=(400, 400))
+        self.footprint_preview.SetMinSize((400, 400))
         footprint_sizer.Add(self.footprint_preview, 1, wx.ALIGN_CENTER | wx.ALL, 10)
         footprint_panel.SetSizer(footprint_sizer)
         self.preview_notebook.AddPage(footprint_panel, "Footprint")
@@ -215,7 +217,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # 3D model preview tab
         model_3d_panel = wx.Panel(self.preview_notebook)
         model_3d_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.model_3d_preview = wx.StaticBitmap(model_3d_panel)
+        self.model_3d_preview = wx.StaticBitmap(model_3d_panel, size=(400, 400))
+        self.model_3d_preview.SetMinSize((400, 400))
         model_3d_sizer.Add(self.model_3d_preview, 1, wx.ALIGN_CENTER | wx.ALL, 10)
         model_3d_panel.SetSizer(model_3d_sizer)
         self.preview_notebook.AddPage(model_3d_panel, "3D Model")
@@ -492,12 +495,21 @@ class LCSCManagerSearchDialog(wx.Dialog):
         """Display preview bitmaps"""
         if symbol_bitmap:
             self.symbol_preview.SetBitmap(symbol_bitmap)
+            self.symbol_preview.SetMinSize(symbol_bitmap.GetSize())
+            self.symbol_preview.Refresh()
         if footprint_bitmap:
             self.footprint_preview.SetBitmap(footprint_bitmap)
+            self.footprint_preview.SetMinSize(footprint_bitmap.GetSize())
+            self.footprint_preview.Refresh()
         if model_3d_bitmap:
             self.model_3d_preview.SetBitmap(model_3d_bitmap)
+            self.model_3d_preview.SetMinSize(model_3d_bitmap.GetSize())
+            self.model_3d_preview.Refresh()
 
+        # Force layout update
+        self.preview_notebook.Layout()
         self.Layout()
+        self.Refresh()
 
     def _on_import(self, event):
         """Handle import button click"""
