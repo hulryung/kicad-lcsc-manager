@@ -392,15 +392,15 @@ class LCSCManagerSearchDialog(wx.Dialog):
     def _load_previews(self, result):
         """Load and display previews for selected component"""
         try:
-            # Get component UUID
-            uuid = result.get("uuid")
-            if not uuid:
-                logger.warning("No UUID in result")
+            # Get LCSC ID (stored as 'uuid' in search results)
+            lcsc_id = result.get("uuid") or result.get("lcsc", {}).get("number")
+            if not lcsc_id:
+                logger.warning("No LCSC ID in result")
                 return
 
             # Check cache
-            if uuid in self.preview_cache:
-                cached = self.preview_cache[uuid]
+            if lcsc_id in self.preview_cache:
+                cached = self.preview_cache[lcsc_id]
                 self._display_previews(
                     cached['symbol'],
                     cached['footprint'],
@@ -408,13 +408,19 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 )
                 return
 
-            # Fetch complete component data
+            # Fetch complete component data using LCSC ID
             wx.BeginBusyCursor()
-            easyeda_data = self.api_client.get_easyeda_component(uuid)
+            component_data = self.api_client.search_component(lcsc_id)
             wx.EndBusyCursor()
 
+            if not component_data:
+                logger.warning(f"Failed to fetch component data for {lcsc_id}")
+                return
+
+            # Extract EasyEDA data from component
+            easyeda_data = component_data.get("easyeda_data")
             if not easyeda_data:
-                logger.warning(f"Failed to fetch component data for {uuid}")
+                logger.warning(f"No EasyEDA data for {lcsc_id}")
                 return
 
             # Render previews
@@ -423,11 +429,12 @@ class LCSCManagerSearchDialog(wx.Dialog):
             model_3d_bitmap = self.model_3d_renderer.render(easyeda_data)
 
             # Cache
-            self.preview_cache[uuid] = {
+            self.preview_cache[lcsc_id] = {
                 'symbol': symbol_bitmap,
                 'footprint': footprint_bitmap,
                 'model_3d': model_3d_bitmap,
-                'easyeda_data': easyeda_data
+                'easyeda_data': easyeda_data,
+                'component_data': component_data
             }
 
             # Display
@@ -472,41 +479,43 @@ class LCSCManagerSearchDialog(wx.Dialog):
             return
 
         try:
-            # Get complete component data
-            uuid = self.selected_component.get("uuid")
+            # Get LCSC ID
+            lcsc_id = self.selected_component.get("uuid") or self.selected_component.get("lcsc", {}).get("number")
 
-            # Check if we have cached data
-            if uuid in self.preview_cache:
-                easyeda_data = self.preview_cache[uuid]['easyeda_data']
-            else:
-                wx.BeginBusyCursor()
-                easyeda_data = self.api_client.get_easyeda_component(uuid)
-                wx.EndBusyCursor()
-
-            if not easyeda_data:
+            if not lcsc_id:
                 wx.MessageBox(
-                    "Failed to fetch component data.",
+                    "No LCSC ID found for selected component.",
                     "Import Error",
                     wx.OK | wx.ICON_ERROR
                 )
                 return
 
-            # Get LCSC ID for stock/pricing
-            lcsc_id = self.selected_component.get("lcsc", {}).get("number", "")
-            if lcsc_id:
-                # Fetch complete component info (with JLCPCB data)
-                component_info = self.api_client.search_component(lcsc_id)
+            # Check if we have cached data
+            if lcsc_id in self.preview_cache:
+                easyeda_data = self.preview_cache[lcsc_id]['easyeda_data']
+                component_info = self.preview_cache[lcsc_id]['component_data']
             else:
-                # Build component info from EasyEDA data
-                component_info = {
-                    "lcsc_id": lcsc_id or uuid,
-                    "name": self.selected_component.get("title", "Unknown"),
-                    "description": self.selected_component.get("description", ""),
-                    "package": self.selected_component.get("package", "Unknown"),
-                    "symbol_uuid": uuid,
-                    "footprint_uuid": easyeda_data.get("packageDetail", {}).get("uuid"),
-                    "easyeda_data": easyeda_data
-                }
+                # Fetch complete component data
+                wx.BeginBusyCursor()
+                component_info = self.api_client.search_component(lcsc_id)
+                wx.EndBusyCursor()
+
+                if not component_info:
+                    wx.MessageBox(
+                        "Failed to fetch component data.",
+                        "Import Error",
+                        wx.OK | wx.ICON_ERROR
+                    )
+                    return
+
+                easyeda_data = component_info.get("easyeda_data")
+                if not easyeda_data:
+                    wx.MessageBox(
+                        "No EasyEDA data available for this component.",
+                        "Import Error",
+                        wx.OK | wx.ICON_ERROR
+                    )
+                    return
 
             # Show progress dialog
             progress = wx.ProgressDialog(

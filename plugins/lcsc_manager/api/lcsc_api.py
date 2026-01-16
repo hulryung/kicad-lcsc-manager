@@ -409,7 +409,7 @@ class LCSCAPIClient:
         page: int = 1
     ) -> List[Dict[str, Any]]:
         """
-        Advanced component search with multiple parameters
+        Advanced component search with multiple parameters using JLCPCB API
 
         Args:
             component_name: Component name or description
@@ -443,8 +443,8 @@ class LCSCAPIClient:
         query = " ".join(query_parts)
         logger.info(f"Advanced search query: {query}")
 
-        # Use existing search_easyeda method
-        return self.search_easyeda(query, page)
+        # Use JLCPCB search API
+        return self.search_jlcpcb(query, page)
 
     def search_easyeda(self, query: str, page: int = 1) -> List[Dict[str, Any]]:
         """
@@ -539,6 +539,78 @@ class LCSCAPIClient:
         # The EasyEDA data is already included in the component from search_component
         # No need to modify it - it already contains the full API response
         return component
+
+
+    def search_jlcpcb(self, query: str, page: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:
+        """
+        Search for components using JLCPCB API
+
+        Args:
+            query: Search query
+            page: Page number (default: 1)
+            page_size: Results per page (default: 20)
+
+        Returns:
+            List of component data dictionaries with 'lcsc', 'title', 'package', 'uuid'
+
+        Raises:
+            LCSCAPIError: If search fails
+        """
+        logger.info(f"Searching JLCPCB: {query}, page {page}")
+
+        try:
+            url = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList"
+
+            response = self._make_request(
+                method="POST",
+                url=url,
+                json_data={
+                    "keyword": query,
+                    "currentPage": page,
+                    "pageSize": page_size
+                }
+            )
+
+            if response.get("code") != 200:
+                logger.warning(f"JLCPCB search failed: {response.get('msg', 'Unknown error')}")
+                return []
+
+            data = response.get("data", {})
+            component_page_info = data.get("componentPageInfo", {})
+            components = component_page_info.get("list", [])
+
+            if not components:
+                logger.info("No components found in JLCPCB search")
+                return []
+
+            logger.info(f"Found {len(components)} components")
+
+            # Convert JLCPCB format to our internal format
+            results = []
+            for comp in components:
+                # Extract LCSC ID from urlSuffix (e.g., "RaspberryPi-RP2040/C2040" -> "C2040")
+                url_suffix = comp.get("urlSuffix", "")
+                lcsc_id = url_suffix.split("/")[-1] if "/" in url_suffix else ""
+
+                # Create component data in format expected by dialog
+                result = {
+                    "lcsc": {
+                        "number": lcsc_id
+                    },
+                    "title": comp.get("erpComponentName", "Unknown"),
+                    "package": comp.get("componentTypeEn", ""),
+                    "description": comp.get("componentTypeEn", ""),
+                    "uuid": lcsc_id,  # Use LCSC ID as UUID for fetching later
+                    "stockCount": comp.get("stockCount", 0),
+                    "componentId": comp.get("componentId"),
+                }
+                results.append(result)
+
+            return results
+
+        except Exception as e:
+            logger.error(f"JLCPCB search error: {e}", exc_info=True)
+            raise LCSCAPIError(f"JLCPCB search failed: {e}")
 
 
 # Singleton instance
