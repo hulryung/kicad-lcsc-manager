@@ -1,0 +1,30 @@
+{
+  "$schema": "https://go.kicad.org/pcm/schemas/v1",
+  "name": "LCSC Manager",
+  "description": "Import components from LCSC/EasyEDA with symbols, footprints, and 3D models",
+  "description_full": "A KiCad plugin that allows you to search and import electronic components from LCSC/EasyEDA and JLCPCB directly into your KiCad projects. Features include automatic download of symbols, footprints, and 3D models (both WRL and STEP formats), integration with JLCPCB API for real-time stock and pricing information, and seamless addition to project-specific libraries.",
+  "identifier": "com.github.hulryung.kicad-lcsc-manager",
+  "type": "plugin",
+  "author": {
+    "name": "hulryung",
+    "contact": {
+      "web": "https://github.com/hulryung/kicad-lcsc-manager"
+    }
+  },
+  "license": "MIT",
+  "resources": {
+    "homepage": "https://github.com/hulryung/kicad-lcsc-manager",
+    "repository": "https://github.com/hulryung/kicad-lcsc-manager"
+  },
+  "versions": [
+    {
+      "version": "0.1.0",
+      "status": "stable",
+      "kicad_version": "9.0",
+      "download_url": "https://github.com/hulryung/kicad-lcsc-manager/releases/download/v0.1.0/kicad-lcsc-manager-0.1.0.zip",
+      "download_sha256": "6c364459af739e4e23794db776db406575b74d5bee91fe9894169db5d32f7573",
+      "download_size": 53000,
+      "install_size": 200000
+    }
+  ]
+}

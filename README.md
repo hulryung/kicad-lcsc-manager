@@ -5,26 +5,31 @@ A KiCad plugin that allows you to search and import electronic components from L
 ## Features
 
 - 🔍 Search components by LCSC part number
-- 📦 Automatically download symbols, footprints, and 3D models
+- 📦 Automatically download symbols, footprints, and 3D models (WRL and STEP formats)
+- 💰 Real-time stock, pricing, and datasheet information from JLCPCB API
 - 📚 Add components to project-specific libraries
-- 🎨 Seamless integration with KiCad 6.0+
+- ⚠️ Smart overwrite detection with selective import options
+- 🎨 Seamless integration with KiCad 9.0+
 - 🔄 Support for both LCSC/EasyEDA and JLCPCB parts
 
 ## Installation
 
-### From KiCad Plugin Manager (Coming Soon)
+### From KiCad Plugin Manager (Recommended)
 1. Open KiCad
-2. Go to Tools → Plugin and Content Manager
-3. Search for "LCSC Manager"
-4. Click Install
+2. Go to **Tools → Plugin and Content Manager**
+3. Search for **"LCSC Manager"**
+4. Click **Install**
+5. Restart KiCad
 
 ### Manual Installation
-1. Download the latest release
-2. Extract to your KiCad plugins directory:
+1. Download the [latest release](https://github.com/hulryung/kicad-lcsc-manager/releases)
+2. Extract the ZIP file to your KiCad plugins directory:
    - **Windows**: `C:\Users\[USERNAME]\Documents\KiCad\[VERSION]\scripting\plugins\`
    - **macOS**: `~/Documents/KiCad/[VERSION]/scripting/plugins/`
    - **Linux**: `~/.kicad/scripting/plugins/`
 3. Restart KiCad
+
+For detailed installation instructions, see [INSTALL.md](INSTALL.md)
 
 ## Usage
 

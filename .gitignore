@@ -53,3 +53,6 @@ htmlcov/
 
 # Project specific
 plugins/lcsc_manager/resources/.icon_placeholder
+
+# Release artifacts
+release/

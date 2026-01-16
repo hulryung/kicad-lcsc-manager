@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#2980b9"/>
+
+  <!-- IC chip body -->
+  <rect x="20" y="20" width="24" height="24" fill="#ecf0f1" stroke="#34495e" stroke-width="2" rx="2"/>
+
+  <!-- IC pins - Left side -->
+  <rect x="16" y="23" width="4" height="3" fill="#bdc3c7"/>
+  <rect x="16" y="28" width="4" height="3" fill="#bdc3c7"/>
+  <rect x="16" y="33" width="4" height="3" fill="#bdc3c7"/>
+  <rect x="16" y="38" width="4" height="3" fill="#bdc3c7"/>
+
+  <!-- IC pins - Right side -->
+  <rect x="44" y="23" width="4" height="3" fill="#bdc3c7"/>
+  <rect x="44" y="28" width="4" height="3" fill="#bdc3c7"/>
+  <rect x="44" y="33" width="4" height="3" fill="#bdc3c7"/>
+  <rect x="44" y="38" width="4" height="3" fill="#bdc3c7"/>
+
+  <!-- IC pins - Top side -->
+  <rect x="23" y="16" width="3" height="4" fill="#bdc3c7"/>
+  <rect x="28" y="16" width="3" height="4" fill="#bdc3c7"/>
+  <rect x="33" y="16" width="3" height="4" fill="#bdc3c7"/>
+  <rect x="38" y="16" width="3" height="4" fill="#bdc3c7"/>
+
+  <!-- IC pins - Bottom side -->
+  <rect x="23" y="44" width="3" height="4" fill="#bdc3c7"/>
+  <rect x="28" y="44" width="3" height="4" fill="#bdc3c7"/>
+  <rect x="33" y="44" width="3" height="4" fill="#bdc3c7"/>
+  <rect x="38" y="44" width="3" height="4" fill="#bdc3c7"/>
+
+  <!-- "L" text for LCSC -->
+  <text x="32" y="36" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#2980b9" text-anchor="middle">L</text>
+</svg>
