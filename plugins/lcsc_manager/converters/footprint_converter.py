@@ -12,7 +12,7 @@ from ..utils.logger import get_logger
 logger = get_logger()
 
 try:
-    from KicadModTree import Footprint, KicadFileHandler, Pad, Text, Translation
+    from KicadModTree import Footprint, KicadFileHandler, Pad, Text, Translation, Model
     KICADMODTREE_AVAILABLE = True
 except ImportError:
     KICADMODTREE_AVAILABLE = False
@@ -207,6 +207,21 @@ class FootprintConverter:
             )
         )
 
+        # Add 3D model reference
+        lcsc_id = component_info.get("lcsc_id", "")
+        if lcsc_id:
+            # Use KIPRJMOD variable for relative path
+            model_path = f"${{KIPRJMOD}}/libs/lcsc/3dmodels/{lcsc_id}.wrl"
+            kicad_mod.append(
+                Model(
+                    filename=model_path,
+                    at=[0, 0, 0],
+                    scale=[1, 1, 1],
+                    rotate=[0, 0, 0]
+                )
+            )
+            self.logger.debug(f"Added 3D model reference: {model_path}")
+
         # Convert to string (S-expression)
         file_handler = KicadFileHandler(kicad_mod)
         return file_handler.serialize()
@@ -280,7 +295,7 @@ class FootprintConverter:
   (fp_rect (start -1.2 -0.8) (end 1.2 0.8) (layer "F.Fab") (width 0.1) (fill none))
   (pad "1" smd rect (at -1 0) (size 0.8 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
   (pad "2" smd rect (at 1 0) (size 0.8 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (model "${{KIPRJMOD}}/libs/lcsc/3dmodels/{lcsc_id}.step"
+  (model "${{KIPRJMOD}}/libs/lcsc/3dmodels/{lcsc_id}.wrl"
     (offset (xyz 0 0 0))
     (scale (xyz 1 1 1))
     (rotate (xyz 0 0 0))
