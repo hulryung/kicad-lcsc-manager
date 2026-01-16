@@ -31,16 +31,29 @@ A KiCad plugin that allows you to search and import electronic components from L
 
 For detailed installation instructions, see [INSTALL.md](INSTALL.md)
 
+## Screenshots
+
+![LCSC Manager Dialog](docs/images/screenshot-main-dialog.png)
+
+*Import components from LCSC/EasyEDA with real-time stock and pricing information*
+
 ## Usage
 
 1. Open a KiCad project (PCB Editor or Symbol Editor)
 2. Click the LCSC Manager icon in the toolbar
-3. Enter an LCSC part number (e.g., C2040)
-4. Click "Import" to download and add the component to your project libraries
-5. The component will be available in:
-   - `<project>/libs/lcsc/symbols/lcsc_imported.kicad_sym`
-   - `<project>/libs/lcsc/footprints.pretty/`
-   - `<project>/libs/lcsc/3dmodels/`
+3. Enter an LCSC part number (e.g., **C2040** for RP2040)
+4. Click **Search** to fetch component information
+5. Review the component details:
+   - Part name and manufacturer
+   - Package type
+   - JLCPCB stock availability
+   - Extended/Basic part classification
+6. Select import options (Symbol, Footprint, 3D Model)
+7. Click **Import** to add the component to your project libraries
+8. The component will be available in:
+   - Symbol: `<project>/libs/lcsc/symbols/lcsc_imported.kicad_sym`
+   - Footprint: `<project>/libs/lcsc/footprints.pretty/`
+   - 3D Models: `<project>/libs/lcsc/3dmodels/`
 
 ## Requirements
 
