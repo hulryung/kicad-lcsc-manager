@@ -464,7 +464,7 @@ handlers = {
     "R": h_R,
     "E": h_E,
     "P": h_P,
-    "T": h_T,
+    # "T": h_T,  # Disabled: Text elements not needed in KiCad symbols
     "PL": h_PL,
     "PG": h_PG,
     "PT": h_PT,
