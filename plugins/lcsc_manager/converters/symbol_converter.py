@@ -66,7 +66,8 @@ class SymbolConverter:
                 description=component_info.get("description", ""),
                 datasheet=component_info.get("datasheet", ""),
                 manufacturer=component_info.get("manufacturer", ""),
-                lcsc_id=component_info.get("lcsc_id", "")
+                lcsc_id=component_info.get("lcsc_id", ""),
+                footprint=self._get_footprint_reference(component_info)
             )
 
     def _create_symbol_from_easyeda(
@@ -134,7 +135,9 @@ class SymbolConverter:
         datasheet = component_info.get("datasheet", "")
         description = component_info.get("description", "")
         manufacturer = component_info.get("manufacturer", "")
-        footprint_name = ""  # Will be set by library manager
+
+        # Generate footprint reference (library:footprint format)
+        footprint_name = self._get_footprint_reference(component_info)
 
         complete_symbol = f'''(kicad_symbol_lib
   (version 20241209)
@@ -222,6 +225,37 @@ class SymbolConverter:
 
         return name
 
+    def _get_footprint_reference(self, component_info: Dict[str, Any]) -> str:
+        """
+        Generate KiCad footprint reference (library:footprint format)
+
+        Args:
+            component_info: Component metadata
+
+        Returns:
+            Footprint reference in KiCad format (e.g., "footprints:C2040_LQFN-56")
+        """
+        lcsc_id = component_info.get("lcsc_id", "Unknown")
+        package = component_info.get("package", "Unknown")
+
+        # Sanitize package name for KiCad (same as footprint_converter)
+        package = (package
+                   .replace(" ", "_")
+                   .replace(".", "_")
+                   .replace("/", "{slash}")
+                   .replace("\\", "{backslash}")
+                   .replace("<", "{lt}")
+                   .replace(">", "{gt}")
+                   .replace(":", "{colon}")
+                   .replace('"', "{dblquote}"))
+
+        footprint_name = f"{lcsc_id}_{package}"
+
+        # KiCad footprint reference format: library_nickname:footprint_name
+        # The library nickname is the .pretty folder name without extension
+        # Default: "footprints" from config "footprint_lib_name": "footprints.pretty"
+        return f"footprints:{footprint_name}"
+
     def _create_placeholder_symbol(
         self,
         symbol_name: str,
@@ -230,7 +264,8 @@ class SymbolConverter:
         description: str,
         datasheet: str,
         manufacturer: str,
-        lcsc_id: str
+        lcsc_id: str,
+        footprint: str = ""
     ) -> str:
         """
         Create a placeholder KiCad symbol (fallback)
@@ -243,6 +278,7 @@ class SymbolConverter:
             datasheet: Datasheet URL
             manufacturer: Manufacturer name
             lcsc_id: LCSC part number
+            footprint: Footprint reference (library:footprint)
 
         Returns:
             KiCad symbol S-expression
@@ -268,7 +304,7 @@ class SymbolConverter:
         (font (size 1.27 1.27))
       )
     )
-    (property "Footprint" ""
+    (property "Footprint" "{footprint}"
       (at 0 -7.62 0)
       (effects
         (font (size 1.27 1.27))
