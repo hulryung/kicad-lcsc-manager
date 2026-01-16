@@ -108,8 +108,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         panel = wx.Panel(self)
         sizer = wx.StaticBoxSizer(wx.VERTICAL, panel, "Search Filters")
 
-        # Create horizontal sizer for inputs
-        input_sizer = wx.FlexGridSizer(2, 5, 5, 10)
+        # Create grid sizer for inputs (2 rows, 4 columns)
+        input_sizer = wx.FlexGridSizer(rows=2, cols=4, vgap=5, hgap=10)
         input_sizer.AddGrowableCol(1)
         input_sizer.AddGrowableCol(3)
 
