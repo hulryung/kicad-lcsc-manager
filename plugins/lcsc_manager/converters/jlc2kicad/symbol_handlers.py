@@ -167,8 +167,16 @@ def h_P(data, translation, kicad_symbol):
       (pin {electrical_type} line
         (at {x1} {y1} {rotation})
         (length {length})
-        (name "{pin_name}" (effects (font (size {name_size} {name_size}))))
-        (number "{pin_number}" (effects (font (size {number_size} {number_size}))))
+        (name "{pin_name}"
+          (effects
+            (font (size {name_size} {name_size}))
+          )
+        )
+        (number "{pin_number}"
+          (effects
+            (font (size {number_size} {number_size}))
+          )
+        )
       )"""
 
 

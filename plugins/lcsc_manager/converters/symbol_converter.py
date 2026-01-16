@@ -107,8 +107,8 @@ class SymbolConverter:
             float(easyeda_data["dataStr"]["head"]["y"])
         )
 
-        # Add drawing start
-        kicad_symbol.drawing += f'\n    (symbol "{symbol_name}_1"'
+        # Add drawing start (unit_demorgan format for KiCad 9.0)
+        kicad_symbol.drawing += f'\n    (symbol "{symbol_name}_1_1"'
 
         # Parse each shape element using handlers
         for line in symbol_shape:
@@ -136,31 +136,60 @@ class SymbolConverter:
         manufacturer = component_info.get("manufacturer", "")
         footprint_name = ""  # Will be set by library manager
 
-        complete_symbol = f'''(kicad_symbol_lib (version 20211014) (generator kicad_lcsc_manager)
-  (symbol "{symbol_name}" {kicad_symbol.pinNamesHide} {kicad_symbol.pinNumbersHide} (in_bom yes) (on_board yes)
-    (property "Reference" "{reference}" (id 0) (at 0 1.27 0)
-      (effects (font (size 1.27 1.27)))
+        complete_symbol = f'''(kicad_symbol_lib
+  (version 20241209)
+  (generator "kicad_lcsc_manager")
+  (generator_version "1.0")
+  (symbol "{symbol_name}"
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "{reference}"
+      (at 0 1.27 0)
+      (effects
+        (font (size 1.27 1.27))
+      )
     )
-    (property "Value" "{symbol_name}" (id 1) (at 0 -2.54 0)
-      (effects (font (size 1.27 1.27)))
+    (property "Value" "{symbol_name}"
+      (at 0 -2.54 0)
+      (effects
+        (font (size 1.27 1.27))
+      )
     )
-    (property "Footprint" "{footprint_name}" (id 2) (at 0 -10.16 0)
-      (effects (font (size 1.27 1.27) italic) hide)
+    (property "Footprint" "{footprint_name}"
+      (at 0 -10.16 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     )
-    (property "Datasheet" "{datasheet}" (id 3) (at -2.286 0.127 0)
-      (effects (font (size 1.27 1.27)) (justify left) hide)
+    (property "Datasheet" "{datasheet}"
+      (at -2.286 0.127 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     )
-    (property "ki_keywords" "{lcsc_id}" (id 4) (at 0 0 0)
-      (effects (font (size 1.27 1.27)) hide)
+    (property "Description" "{description}"
+      (at 0 0 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     )
-    (property "LCSC" "{lcsc_id}" (id 5) (at 0 0 0)
-      (effects (font (size 1.27 1.27)) hide)
+    (property "LCSC" "{lcsc_id}"
+      (at 0 0 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     )
-    (property "Manufacturer" "{manufacturer}" (id 6) (at 0 0 0)
-      (effects (font (size 1.27 1.27)) hide)
-    )
-    (property "ki_description" "{description}" (id 7) (at 0 0 0)
-      (effects (font (size 1.27 1.27)) hide)
+    (property "Manufacturer" "{manufacturer}"
+      (at 0 0 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     ){kicad_symbol.drawing}
   )
 )
@@ -218,43 +247,103 @@ class SymbolConverter:
         Returns:
             KiCad symbol S-expression
         """
-        symbol = f'''(kicad_symbol_lib (version 20211014) (generator kicad_lcsc_manager)
-  (symbol "{symbol_name}" (pin_names (offset 1.016)) (in_bom yes) (on_board yes)
-    (property "Reference" "{reference}" (id 0) (at 0 5.08 0)
-      (effects (font (size 1.27 1.27)))
+        symbol = f'''(kicad_symbol_lib
+  (version 20241209)
+  (generator "kicad_lcsc_manager")
+  (generator_version "1.0")
+  (symbol "{symbol_name}"
+    (pin_names (offset 1.016))
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "{reference}"
+      (at 0 5.08 0)
+      (effects
+        (font (size 1.27 1.27))
+      )
     )
-    (property "Value" "{value}" (id 1) (at 0 -5.08 0)
-      (effects (font (size 1.27 1.27)))
+    (property "Value" "{value}"
+      (at 0 -5.08 0)
+      (effects
+        (font (size 1.27 1.27))
+      )
     )
-    (property "Footprint" "" (id 2) (at 0 -7.62 0)
-      (effects (font (size 1.27 1.27)) hide)
+    (property "Footprint" ""
+      (at 0 -7.62 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     )
-    (property "Datasheet" "{datasheet}" (id 3) (at 0 0 0)
-      (effects (font (size 1.27 1.27)) hide)
+    (property "Datasheet" "{datasheet}"
+      (at 0 0 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     )
-    (property "Manufacturer" "{manufacturer}" (id 4) (at 0 -10.16 0)
-      (effects (font (size 1.27 1.27)) hide)
+    (property "Description" "{description}"
+      (at 0 0 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     )
-    (property "LCSC" "{lcsc_id}" (id 5) (at 0 -12.7 0)
-      (effects (font (size 1.27 1.27)) hide)
+    (property "Manufacturer" "{manufacturer}"
+      (at 0 -10.16 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     )
-    (property "ki_description" "{description}" (id 6) (at 0 0 0)
-      (effects (font (size 1.27 1.27)) hide)
+    (property "LCSC" "{lcsc_id}"
+      (at 0 -12.7 0)
+      (effects
+        (font (size 1.27 1.27))
+        (hide yes)
+      )
     )
     (symbol "{symbol_name}_0_1"
-      (rectangle (start -5.08 3.81) (end 5.08 -3.81)
-        (stroke (width 0.254) (type default) (color 0 0 0 0))
-        (fill (type background))
+      (rectangle
+        (start -5.08 3.81)
+        (end 5.08 -3.81)
+        (stroke
+          (width 0.254)
+          (type default)
+        )
+        (fill
+          (type background)
+        )
       )
     )
     (symbol "{symbol_name}_1_1"
-      (pin unspecified line (at -7.62 0 0) (length 2.54)
-        (name "1" (effects (font (size 1.27 1.27))))
-        (number "1" (effects (font (size 1.27 1.27))))
+      (pin unspecified line
+        (at -7.62 0 0)
+        (length 2.54)
+        (name "1"
+          (effects
+            (font (size 1.27 1.27))
+          )
+        )
+        (number "1"
+          (effects
+            (font (size 1.27 1.27))
+          )
+        )
       )
-      (pin unspecified line (at 7.62 0 180) (length 2.54)
-        (name "2" (effects (font (size 1.27 1.27))))
-        (number "2" (effects (font (size 1.27 1.27))))
+      (pin unspecified line
+        (at 7.62 0 180)
+        (length 2.54)
+        (name "2"
+          (effects
+            (font (size 1.27 1.27))
+          )
+        )
+        (number "2"
+          (effects
+            (font (size 1.27 1.27))
+          )
+        )
       )
     )
   )
