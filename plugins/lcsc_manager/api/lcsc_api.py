@@ -29,23 +29,34 @@ class LCSCAPIClient:
 
     # Rate limiting
     MAX_REQUESTS_PER_MINUTE = 30
-    REQUEST_DELAY = 3.0  # seconds between requests
-    RETRY_DELAY = 5.0  # seconds to wait before retry on 403
+    REQUEST_DELAY = 5.0  # seconds between requests
+    RETRY_DELAY = 10.0  # seconds to wait before retry on 403
 
     def __init__(self):
         """Initialize LCSC API client"""
         self.config = get_config()
-        self.session = requests.Session()
+        self.last_request_time = 0
+
+    def _get_session(self):
+        """Get a fresh session with proper headers for each request"""
+        session = requests.Session()
         # Use realistic browser headers to avoid API blocking
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9,ko;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': 'https://jlcpcb.com/',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Referer': 'https://jlcpcb.com/parts',
             'Origin': 'https://jlcpcb.com',
+            'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"macOS"',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'DNT': '1',
         })
-        self.last_request_time = 0
+        return session
 
     def _rate_limit(self):
         """Implement rate limiting to avoid hitting API limits"""
@@ -90,12 +101,15 @@ class LCSCAPIClient:
         try:
             logger.debug(f"{method} {url} params={params}")
 
+            # Get fresh session for each request
+            session = self._get_session()
+
             # Add Content-Type for POST requests with JSON data
             headers = {}
             if method.upper() == "POST" and json_data:
                 headers['Content-Type'] = 'application/json;charset=UTF-8'
 
-            response = self.session.request(
+            response = session.request(
                 method=method,
                 url=url,
                 params=params,
@@ -110,9 +124,10 @@ class LCSCAPIClient:
 
         except requests.exceptions.HTTPError as e:
             # Retry on 403 Forbidden (rate limiting)
-            if e.response.status_code == 403 and retry_count < 2:
-                logger.warning(f"Got 403 Forbidden, waiting {self.RETRY_DELAY}s before retry {retry_count + 1}/2")
-                time.sleep(self.RETRY_DELAY)
+            if e.response.status_code == 403 and retry_count < 3:
+                wait_time = self.RETRY_DELAY * (retry_count + 1)  # Exponential backoff
+                logger.warning(f"Got 403 Forbidden, waiting {wait_time}s before retry {retry_count + 1}/3")
+                time.sleep(wait_time)
                 return self._make_request(method, url, params, json_data, timeout, retry_count + 1)
 
             logger.error(f"HTTP error: {e}")
