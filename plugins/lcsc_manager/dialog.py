@@ -12,6 +12,97 @@ from .library.library_manager import LibraryManager
 logger = get_logger()
 
 
+class OverwriteConfirmDialog(wx.Dialog):
+    """Dialog to confirm overwriting existing files"""
+
+    def __init__(self, parent, existing_files: Dict[str, bool], component_name: str):
+        """
+        Initialize overwrite confirmation dialog
+
+        Args:
+            parent: Parent window
+            existing_files: Dictionary of existing file flags
+            component_name: Name of component being imported
+        """
+        super().__init__(
+            parent,
+            title="Confirm Overwrite",
+            size=(400, 300),
+            style=wx.DEFAULT_DIALOG_STYLE
+        )
+
+        self.existing_files = existing_files
+        self.overwrite_choices = {}
+
+        self._create_ui(component_name)
+        self.Centre()
+
+    def _create_ui(self, component_name: str):
+        """Create the dialog UI"""
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Warning message
+        warning_text = wx.StaticText(
+            self,
+            label=f"The following files already exist for {component_name}.\nSelect which files to overwrite:"
+        )
+        main_sizer.Add(warning_text, 0, wx.ALL | wx.EXPAND, 10)
+
+        # Separator
+        main_sizer.Add(wx.StaticLine(self), 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        main_sizer.AddSpacer(10)
+
+        # Checkboxes for each existing file
+        checkbox_panel = wx.Panel(self)
+        checkbox_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        if self.existing_files.get("symbol"):
+            self.overwrite_choices["symbol"] = wx.CheckBox(checkbox_panel, label="Overwrite Symbol")
+            self.overwrite_choices["symbol"].SetValue(True)
+            checkbox_sizer.Add(self.overwrite_choices["symbol"], 0, wx.ALL, 5)
+
+        if self.existing_files.get("footprint"):
+            self.overwrite_choices["footprint"] = wx.CheckBox(checkbox_panel, label="Overwrite Footprint")
+            self.overwrite_choices["footprint"].SetValue(True)
+            checkbox_sizer.Add(self.overwrite_choices["footprint"], 0, wx.ALL, 5)
+
+        if self.existing_files.get("3d_wrl") or self.existing_files.get("3d_step"):
+            self.overwrite_choices["3d"] = wx.CheckBox(checkbox_panel, label="Overwrite 3D Model")
+            self.overwrite_choices["3d"].SetValue(True)
+            checkbox_sizer.Add(self.overwrite_choices["3d"], 0, wx.ALL, 5)
+
+        checkbox_panel.SetSizer(checkbox_sizer)
+        main_sizer.Add(checkbox_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+
+        # Buttons
+        button_sizer = wx.StdDialogButtonSizer()
+
+        ok_btn = wx.Button(self, wx.ID_OK, "Overwrite")
+        ok_btn.SetDefault()
+        button_sizer.AddButton(ok_btn)
+
+        cancel_btn = wx.Button(self, wx.ID_CANCEL, "Cancel Import")
+        button_sizer.AddButton(cancel_btn)
+
+        button_sizer.Realize()
+        main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 10)
+
+        self.SetSizer(main_sizer)
+        self.Layout()
+
+    def GetOverwriteChoices(self) -> Dict[str, bool]:
+        """
+        Get user's overwrite choices
+
+        Returns:
+            Dictionary with overwrite flags for symbol, footprint, 3d
+        """
+        return {
+            key: checkbox.GetValue()
+            for key, checkbox in self.overwrite_choices.items()
+        }
+
+
 class LCSCManagerDialog(wx.Dialog):
     """
     Main dialog for LCSC Manager plugin
@@ -347,6 +438,45 @@ class LCSCManagerDialog(wx.Dialog):
                 if fetched_data and fetched_data.get('datasheet'):
                     complete_data = fetched_data
 
+            # Check for existing files
+            existing_files = self._check_existing_files(complete_data)
+            has_existing = any([
+                existing_files.get("symbol") and import_symbol,
+                existing_files.get("footprint") and import_footprint,
+                (existing_files.get("3d_wrl") or existing_files.get("3d_step")) and import_3d
+            ])
+
+            if has_existing:
+                # Temporarily hide progress dialog
+                progress.Hide()
+
+                # Show overwrite confirmation dialog
+                component_name = complete_data.get("name", lcsc_id)
+                confirm_dialog = OverwriteConfirmDialog(self, existing_files, component_name)
+                result = confirm_dialog.ShowModal()
+
+                if result == wx.ID_CANCEL:
+                    # User cancelled
+                    confirm_dialog.Destroy()
+                    progress.Destroy()
+                    logger.info("Import cancelled by user (existing files)")
+                    return
+
+                # Get user's overwrite choices
+                overwrite_choices = confirm_dialog.GetOverwriteChoices()
+                confirm_dialog.Destroy()
+
+                # Update import flags based on user choices
+                if not overwrite_choices.get("symbol", True):
+                    import_symbol = False
+                if not overwrite_choices.get("footprint", True):
+                    import_footprint = False
+                if not overwrite_choices.get("3d", True):
+                    import_3d = False
+
+                # Show progress dialog again
+                progress.Show()
+
             # Extract EasyEDA data (will be empty dict if not available)
             easyeda_data = complete_data.get('easyeda_data', {})
 
@@ -407,6 +537,63 @@ class LCSCManagerDialog(wx.Dialog):
                 "Import Error",
                 wx.OK | wx.ICON_ERROR
             )
+
+    def _check_existing_files(self, component_info: Dict[str, Any]) -> Dict[str, bool]:
+        """
+        Check if component files already exist
+
+        Args:
+            component_info: Component metadata
+
+        Returns:
+            Dictionary with exists flags for symbol, footprint, 3d_model
+        """
+        lib_path = self.config.get_library_path(self.project_path)
+        lcsc_id = component_info.get("lcsc_id", "")
+        package = component_info.get("package", "Unknown")
+        symbol_name = component_info.get("description", component_info.get("name", ""))
+
+        exists = {
+            "symbol": False,
+            "footprint": False,
+            "3d_wrl": False,
+            "3d_step": False,
+        }
+
+        # Check symbol - need to parse the library file
+        symbol_file = lib_path / "symbols" / "lcsc_imported.kicad_sym"
+        if symbol_file.exists():
+            try:
+                with open(symbol_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # Look for symbol definition with this name
+                    # Format: (symbol "RP2040" ...
+                    if f'(symbol "{symbol_name}"' in content:
+                        exists["symbol"] = True
+            except Exception as e:
+                logger.warning(f"Failed to check symbol file: {e}")
+                # If we can't parse it, assume it might exist
+                exists["symbol"] = True
+
+        # Check footprint - footprints are separate files
+        footprint_name = package.replace(" ", "_").replace(".", "_")
+        footprint_name = (footprint_name
+                          .replace("/", "{slash}")
+                          .replace("\\", "{backslash}")
+                          .replace("<", "{lt}")
+                          .replace(">", "{gt}")
+                          .replace(":", "{colon}")
+                          .replace('"', "{dblquote}"))
+        footprint_name = f"{lcsc_id}_{footprint_name}"
+        footprint_file = lib_path / "footprints.pretty" / f"{footprint_name}.kicad_mod"
+        exists["footprint"] = footprint_file.exists()
+
+        # Check 3D models - separate files
+        model_dir = lib_path / "3dmodels"
+        exists["3d_wrl"] = (model_dir / f"{lcsc_id}.wrl").exists()
+        exists["3d_step"] = (model_dir / f"{lcsc_id}.step").exists()
+
+        return exists
 
     def GetLCSCId(self) -> str:
         """
