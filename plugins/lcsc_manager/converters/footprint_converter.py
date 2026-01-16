@@ -207,20 +207,25 @@ class FootprintConverter:
             )
         )
 
-        # Add 3D model reference
+        # Add 3D model reference (WRL format - KiCad native)
         lcsc_id = component_info.get("lcsc_id", "")
         if lcsc_id:
-            # Use KIPRJMOD variable for relative path
-            model_path = f"${{KIPRJMOD}}/libs/lcsc/3dmodels/{lcsc_id}.wrl"
+            # Use WRL model (VRML format, preferred for KiCad)
+            # - Smaller file size (~232KB vs ~2MB)
+            # - Faster rendering
+            # - Includes color information
+            # - KiCad native format
+            # STEP file is also downloaded for MCAD export but not referenced in footprint
+            wrl_path = f"${{KIPRJMOD}}/libs/lcsc/3dmodels/{lcsc_id}.wrl"
             kicad_mod.append(
                 Model(
-                    filename=model_path,
+                    filename=wrl_path,
                     at=[0, 0, 0],
                     scale=[1, 1, 1],
                     rotate=[0, 0, 0]
                 )
             )
-            self.logger.debug(f"Added 3D model reference: {model_path}")
+            self.logger.debug(f"Added 3D model reference: {wrl_path}")
 
         # Convert to string (S-expression)
         file_handler = KicadFileHandler(kicad_mod)
