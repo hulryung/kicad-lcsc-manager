@@ -252,9 +252,8 @@ class SymbolConverter:
         footprint_name = f"{lcsc_id}_{package}"
 
         # KiCad footprint reference format: library_nickname:footprint_name
-        # The library nickname is the .pretty folder name without extension
-        # Default: "footprints" from config "footprint_lib_name": "footprints.pretty"
-        return f"footprints:{footprint_name}"
+        # The library nickname should match the fp-lib-table entry
+        return f"lcsc_footprints:{footprint_name}"
 
     def _create_placeholder_symbol(
         self,
