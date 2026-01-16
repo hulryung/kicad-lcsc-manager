@@ -84,8 +84,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Right panel: Preview
         right_panel = self._create_preview_panel(splitter)
 
-        # Split horizontally (left/right)
-        splitter.SplitVertically(left_panel, right_panel, 450)
+        # Split horizontally (left/right) - give more space to results list
+        splitter.SplitVertically(left_panel, right_panel, 620)
 
         main_sizer.Add(splitter, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
@@ -155,13 +155,13 @@ class LCSCManagerSearchDialog(wx.Dialog):
             style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_HRULES | wx.LC_VRULES
         )
 
-        # Columns
-        self.results_list.InsertColumn(0, "LCSC ID", width=80)
-        self.results_list.InsertColumn(1, "Name", width=150)
-        self.results_list.InsertColumn(2, "Package", width=90)
-        self.results_list.InsertColumn(3, "Price", width=60)
-        self.results_list.InsertColumn(4, "Stock", width=60)
-        self.results_list.InsertColumn(5, "Type", width=60)
+        # Columns - adjusted widths to fit all info without scrolling
+        self.results_list.InsertColumn(0, "LCSC ID", width=70)
+        self.results_list.InsertColumn(1, "Name", width=200)
+        self.results_list.InsertColumn(2, "Package", width=80)
+        self.results_list.InsertColumn(3, "Price", width=70)
+        self.results_list.InsertColumn(4, "Stock", width=70)
+        self.results_list.InsertColumn(5, "Type", width=70)
 
         # Bind selection and sort events
         self.results_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_result_selected)
