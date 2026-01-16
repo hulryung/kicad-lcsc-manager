@@ -29,7 +29,8 @@ class LCSCAPIClient:
 
     # Rate limiting
     MAX_REQUESTS_PER_MINUTE = 30
-    REQUEST_DELAY = 2.0  # seconds between requests
+    REQUEST_DELAY = 3.0  # seconds between requests
+    RETRY_DELAY = 5.0  # seconds to wait before retry on 403
 
     def __init__(self):
         """Initialize LCSC API client"""
@@ -61,7 +62,8 @@ class LCSCAPIClient:
         url: str,
         params: Optional[Dict] = None,
         json_data: Optional[Dict] = None,
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
+        retry_count: int = 0
     ) -> Dict:
         """
         Make HTTP request with error handling and rate limiting
@@ -72,6 +74,7 @@ class LCSCAPIClient:
             params: Query parameters
             json_data: JSON request body
             timeout: Request timeout in seconds
+            retry_count: Internal retry counter
 
         Returns:
             Response JSON data
@@ -106,6 +109,12 @@ class LCSCAPIClient:
             return response.json()
 
         except requests.exceptions.HTTPError as e:
+            # Retry on 403 Forbidden (rate limiting)
+            if e.response.status_code == 403 and retry_count < 2:
+                logger.warning(f"Got 403 Forbidden, waiting {self.RETRY_DELAY}s before retry {retry_count + 1}/2")
+                time.sleep(self.RETRY_DELAY)
+                return self._make_request(method, url, params, json_data, timeout, retry_count + 1)
+
             logger.error(f"HTTP error: {e}")
             raise LCSCAPIError(f"API request failed: {e}")
         except requests.exceptions.RequestException as e:
