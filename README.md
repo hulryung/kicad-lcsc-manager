@@ -87,6 +87,30 @@ kicad-lcsc-manager/
 └── README.md               # This file
 ```
 
+## Related Projects
+
+Check out my other KiCad and LCSC-related tools:
+
+### 🌐 [EasyEDA2KiCad Web](https://github.com/hulryung/easyeda2kicad-web)
+A web-based tool to convert EasyEDA/LCSC components to KiCad format with real-time 2D and 3D visualization. Perfect for previewing components before importing them into your project.
+
+**Features:**
+- Web-based interface (no installation required)
+- Real-time 2D footprint preview
+- 3D model visualization
+- Instant conversion and download
+
+### 📋 [BOM Extender](https://github.com/hulryung/bom-extender)
+BOM (Bill of Materials) extension tool that automatically fetches LCSC component information and exports enhanced BOMs.
+
+**Features:**
+- Automatic LCSC component lookup
+- Stock and pricing information
+- Export to various formats
+- Batch processing support
+
+---
+
 ## Credits
 
 This plugin is inspired by and references:
