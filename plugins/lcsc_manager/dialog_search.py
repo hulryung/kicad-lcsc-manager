@@ -34,7 +34,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
         self.project_path = Path(project_path)
         self.api_client = get_api_client()
-        self.library_manager = LibraryManager(project_path)
+        self.library_manager = LibraryManager(self.project_path)
 
         # Preview renderers
         self.symbol_renderer = SymbolPreviewRenderer()
