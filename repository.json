@@ -1,50 +1,22 @@
 {
-  "$schema": "https://go.kicad.org/pcm/schemas/v1",
+  "$schema": "https://gitlab.com/kicad/code/kicad/-/raw/master/kicad/pcm/schemas/pcm.v1.schema.json#/definitions/Repository",
   "name": "LCSC Manager Repository",
-  "packages": [
-    {
-      "$schema": "https://go.kicad.org/pcm/schemas/v1",
-      "name": "LCSC Manager",
-      "description": "Import components from LCSC/EasyEDA with symbols, footprints, and 3D models",
-      "description_full": "A KiCad plugin that allows you to search and import electronic components from LCSC/EasyEDA and JLCPCB directly into your KiCad projects. Features include automatic download of symbols, footprints, and 3D models (both WRL and STEP formats), integration with JLCPCB API for real-time stock and pricing information, and seamless addition to project-specific libraries.",
-      "identifier": "com.github.hulryung.kicad-lcsc-manager",
-      "type": "plugin",
-      "author": {
-        "name": "hulryung",
-        "contact": {
-          "web": "https://github.com/hulryung/kicad-lcsc-manager"
-        }
-      },
-      "maintainer": {
-        "name": "hulryung",
-        "contact": {
-          "web": "https://github.com/hulryung/kicad-lcsc-manager"
-        }
-      },
-      "license": "MIT",
-      "resources": {
-        "homepage": "https://github.com/hulryung/kicad-lcsc-manager"
-      },
-      "versions": [
-        {
-          "version": "0.2.0",
-          "status": "stable",
-          "kicad_version": "9.0",
-          "download_url": "https://github.com/hulryung/kicad-lcsc-manager/releases/download/v0.2.0/kicad-lcsc-manager-0.2.0.zip",
-          "download_sha256": "26e7508481c54f6289ee72d03c02ffdd758b368109599e613858bf5a3953bbc0",
-          "download_size": 72526,
-          "install_size": 250000
-        },
-        {
-          "version": "0.1.0",
-          "status": "stable",
-          "kicad_version": "9.0",
-          "download_url": "https://github.com/hulryung/kicad-lcsc-manager/releases/download/v0.1.0/kicad-lcsc-manager-0.1.0.zip",
-          "download_sha256": "6c364459af739e4e23794db776db406575b74d5bee91fe9894169db5d32f7573",
-          "download_size": 53170,
-          "install_size": 180000
-        }
-      ]
+  "maintainer": {
+    "name": "hulryung",
+    "contact": {
+      "web": "https://github.com/hulryung/kicad-lcsc-manager"
     }
-  ]
+  },
+  "packages": {
+    "url": "https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/packages.json",
+    "sha256": "f497538376a7a0feb0967e3da32cbf369398c45799890dfc3b659c7443baec45",
+    "update_time_utc": "2026-01-17 03:12:46",
+    "update_timestamp": 1737081166
+  },
+  "resources": {
+    "url": "https://github.com/hulryung/kicad-lcsc-manager/raw/main/resources.zip",
+    "sha256": "c259dc9e193a49bdaf73309e859660151af2eca7d6eda504c53dcfb047e8553a",
+    "update_time_utc": "2026-01-17 03:12:46",
+    "update_timestamp": 1737081166
+  }
 }
