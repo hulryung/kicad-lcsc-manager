@@ -4,13 +4,13 @@ Advanced Search Dialog for LCSC Manager
 Provides component search with multiple parameters and preview functionality.
 """
 import wx
+import threading
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from .api.lcsc_api import get_api_client, LCSCAPIError
 from .library.library_manager import LibraryManager
 from .utils.logger import get_logger
-from .preview import Model3DPreviewRenderer
 from .preview.kicad_preview import KiCadPreviewRenderer
 
 logger = get_logger()
@@ -39,13 +39,16 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
         # Preview renderers - use KiCad native rendering
         self.kicad_renderer = KiCadPreviewRenderer()
-        self.model_3d_renderer = Model3DPreviewRenderer()
 
         # Data storage
         self.search_results = []  # List of search result dicts
         self.selected_component = None  # Currently selected component
         self.current_page = 1  # Pagination
         self.preview_cache = {}  # Cache previews by uuid
+
+        # Async preview loading
+        self.preview_thread = None  # Current preview loading thread
+        self.preview_thread_id = 0  # Counter to track preview requests
 
         # Create UI
         self._create_ui()
@@ -213,15 +216,6 @@ class LCSCManagerSearchDialog(wx.Dialog):
         footprint_sizer.Add(self.footprint_preview, 1, wx.ALIGN_CENTER | wx.ALL, 10)
         footprint_panel.SetSizer(footprint_sizer)
         self.preview_notebook.AddPage(footprint_panel, "Footprint")
-
-        # 3D model preview tab
-        model_3d_panel = wx.Panel(self.preview_notebook)
-        model_3d_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.model_3d_preview = wx.StaticBitmap(model_3d_panel, size=(400, 400))
-        self.model_3d_preview.SetMinSize((400, 400))
-        model_3d_sizer.Add(self.model_3d_preview, 1, wx.ALIGN_CENTER | wx.ALL, 10)
-        model_3d_panel.SetSizer(model_3d_sizer)
-        self.preview_notebook.AddPage(model_3d_panel, "3D Model")
 
         sizer.Add(self.preview_notebook, 1, wx.EXPAND | wx.ALL, 5)
 
@@ -410,7 +404,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self._perform_search(search_text, package, self.current_page)
 
     def _on_result_selected(self, event):
-        """Handle result selection - load previews"""
+        """Handle result selection - load previews asynchronously"""
         index = event.GetIndex()
         if index < 0 or index >= len(self.search_results):
             return
@@ -419,15 +413,29 @@ class LCSCManagerSearchDialog(wx.Dialog):
         result = self.search_results[index]
         self.selected_component = result
 
-        # Load previews
-        self._load_previews(result)
+        # Increment thread ID to invalidate previous requests
+        self.preview_thread_id += 1
+        current_thread_id = self.preview_thread_id
+
+        # Show loading placeholder immediately
+        loading_bitmap = self.kicad_renderer._create_placeholder("Loading...")
+        self._display_previews(loading_bitmap, loading_bitmap)
+
+        # Load previews in background thread
+        thread = threading.Thread(
+            target=self._load_previews_async,
+            args=(result, current_thread_id),
+            daemon=True
+        )
+        thread.start()
+        self.preview_thread = thread
 
     def _on_result_activated(self, event):
         """Handle double-click - import directly"""
         self._on_import(event)
 
-    def _load_previews(self, result):
-        """Load and display previews for selected component"""
+    def _load_previews_async(self, result, thread_id):
+        """Load and display previews for selected component (runs in background thread)"""
         try:
             # Get LCSC ID (stored as 'uuid' in search results)
             lcsc_id = result.get("uuid") or result.get("lcsc", {}).get("number")
@@ -435,28 +443,38 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 logger.warning("No LCSC ID in result")
                 return
 
+            # Check if this request is still valid
+            if thread_id != self.preview_thread_id:
+                logger.debug(f"Preview request {thread_id} cancelled (current: {self.preview_thread_id})")
+                return
+
             # Check cache
             if lcsc_id in self.preview_cache:
                 cached = self.preview_cache[lcsc_id]
-                self._display_previews(
-                    cached['symbol'],
-                    cached['footprint'],
-                    cached['model_3d']
-                )
+                # Update UI in main thread
+                if thread_id == self.preview_thread_id:
+                    wx.CallAfter(
+                        self._display_previews,
+                        cached['symbol'],
+                        cached['footprint']
+                    )
                 return
 
             # Fetch complete component data using LCSC ID
-            wx.BeginBusyCursor()
             component_data = self.api_client.search_component(lcsc_id)
-            wx.EndBusyCursor()
+
+            # Check if still valid
+            if thread_id != self.preview_thread_id:
+                logger.debug(f"Preview request {thread_id} cancelled after fetch")
+                return
 
             if not component_data:
                 logger.warning(f"Failed to fetch component data for {lcsc_id}")
                 # Show placeholder for components not in EasyEDA
                 symbol_bitmap = self.kicad_renderer._create_placeholder("Not available\nin EasyEDA")
                 footprint_bitmap = self.kicad_renderer._create_placeholder("Not available\nin EasyEDA")
-                model_3d_bitmap = self.model_3d_renderer._create_placeholder("Not available\nin EasyEDA")
-                self._display_previews(symbol_bitmap, footprint_bitmap, model_3d_bitmap)
+                if thread_id == self.preview_thread_id:
+                    wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap)
                 return
 
             # Extract EasyEDA data from component
@@ -466,45 +484,56 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 # Show placeholder for components without EasyEDA data
                 symbol_bitmap = self.kicad_renderer._create_placeholder("No preview data")
                 footprint_bitmap = self.kicad_renderer._create_placeholder("No preview data")
-                model_3d_bitmap = self.model_3d_renderer._create_placeholder("No preview data")
-                self._display_previews(symbol_bitmap, footprint_bitmap, model_3d_bitmap)
+                if thread_id == self.preview_thread_id:
+                    wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap)
+                return
+
+            # Check if still valid before rendering (rendering is slow)
+            if thread_id != self.preview_thread_id:
+                logger.debug(f"Preview request {thread_id} cancelled before rendering")
                 return
 
             # Render previews using KiCad native rendering
             symbol_bitmap = self.kicad_renderer.render_symbol(easyeda_data, component_data)
             footprint_bitmap = self.kicad_renderer.render_footprint(easyeda_data, component_data)
-            model_3d_bitmap = self.model_3d_renderer.render(easyeda_data)
+
+            logger.debug(f"Rendered previews - Symbol: {symbol_bitmap is not None}, Footprint: {footprint_bitmap is not None}")
+
+            # Check if still valid after rendering
+            if thread_id != self.preview_thread_id:
+                logger.debug(f"Preview request {thread_id} cancelled after rendering")
+                return
 
             # Cache
             self.preview_cache[lcsc_id] = {
                 'symbol': symbol_bitmap,
                 'footprint': footprint_bitmap,
-                'model_3d': model_3d_bitmap,
                 'easyeda_data': easyeda_data,
                 'component_data': component_data
             }
 
-            # Display
-            self._display_previews(symbol_bitmap, footprint_bitmap, model_3d_bitmap)
+            # Display in main thread
+            wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap)
 
         except Exception as e:
-            wx.EndBusyCursor()
             logger.error(f"Failed to load previews: {e}", exc_info=True)
+            # Show error placeholder
+            error_bitmap = self.kicad_renderer._create_placeholder("Load failed")
+            if thread_id == self.preview_thread_id:
+                wx.CallAfter(self._display_previews, error_bitmap, error_bitmap)
 
-    def _display_previews(self, symbol_bitmap, footprint_bitmap, model_3d_bitmap):
+    def _display_previews(self, symbol_bitmap, footprint_bitmap):
         """Display preview bitmaps"""
         if symbol_bitmap:
+            logger.debug(f"Setting symbol bitmap: {symbol_bitmap.GetSize()}, valid={symbol_bitmap.IsOk()}")
             self.symbol_preview.SetBitmap(symbol_bitmap)
             self.symbol_preview.SetMinSize(symbol_bitmap.GetSize())
             self.symbol_preview.Refresh()
         if footprint_bitmap:
+            logger.debug(f"Setting footprint bitmap: {footprint_bitmap.GetSize()}, valid={footprint_bitmap.IsOk()}")
             self.footprint_preview.SetBitmap(footprint_bitmap)
             self.footprint_preview.SetMinSize(footprint_bitmap.GetSize())
             self.footprint_preview.Refresh()
-        if model_3d_bitmap:
-            self.model_3d_preview.SetBitmap(model_3d_bitmap)
-            self.model_3d_preview.SetMinSize(model_3d_bitmap.GetSize())
-            self.model_3d_preview.Refresh()
 
         # Force layout update
         self.preview_notebook.Layout()

@@ -18,7 +18,7 @@ class Model3DPreviewRenderer:
 
     # Preview image settings
     IMAGE_SIZE = (400, 400)
-    BACKGROUND_COLOR = (50, 50, 50)  # Dark gray
+    BACKGROUND_COLOR = (255, 255, 255)  # White background for consistency
 
     def __init__(self):
         self.logger = get_logger("model_3d_preview")
@@ -96,13 +96,17 @@ class Model3DPreviewRenderer:
         img = Image.new('RGB', self.IMAGE_SIZE, self.BACKGROUND_COLOR)
         draw = ImageDraw.Draw(img)
 
+        # Draw border
+        draw.rectangle([10, 10, self.IMAGE_SIZE[0]-10, self.IMAGE_SIZE[1]-10],
+                      outline=(200, 200, 200), width=2)
+
         # Draw 3D box icon (simple representation)
         box_size = 100
         center_x = self.IMAGE_SIZE[0] // 2
         center_y = self.IMAGE_SIZE[1] // 2 - 30
 
-        # Draw simple 3D box
-        color = (150, 150, 150)
+        # Draw simple 3D box with darker color for visibility on white
+        color = (100, 100, 100)
 
         # Front face
         draw.polygon([
@@ -128,10 +132,10 @@ class Model3DPreviewRenderer:
             (center_x + box_size//2, center_y + box_size)
         ], outline=color, width=2)
 
-        # Draw text
+        # Draw text with darker color for visibility
         text = f"3D Model\n{message}"
         draw.text((center_x, center_y + box_size + 40), text,
-                 fill=(180, 180, 180), anchor="mm")
+                 fill=(100, 100, 100), anchor="mm")
 
         return self._pil_to_wx_bitmap(img)
 
