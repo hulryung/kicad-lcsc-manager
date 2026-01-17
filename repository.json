@@ -9,9 +9,9 @@
   },
   "packages": {
     "url": "https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/packages.json",
-    "sha256": "17929219261466d414eda719083f9ede0ab0b3328106b3f7a4a3a6503b27593f",
-    "update_time_utc": "2026-01-17 06:12:21",
-    "update_timestamp": 1768630341
+    "sha256": "e638fab231efc467d9af2abbadf86f70e7fa72f2cbc3ce54583c1cf3e87c7c38",
+    "update_time_utc": "2026-01-17 06:27:06",
+    "update_timestamp": 1768631226
   },
   "resources": {
     "url": "https://github.com/hulryung/kicad-lcsc-manager/raw/main/resources.zip",
