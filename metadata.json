@@ -20,7 +20,11 @@
     {
       "version": "0.2.0",
       "status": "stable",
-      "kicad_version": "9.0"
+      "kicad_version": "9.0",
+      "download_url": "https://github.com/hulryung/kicad-lcsc-manager/releases/download/v0.2.0/kicad-lcsc-manager-0.2.0.zip",
+      "download_sha256": "26e7508481c54f6289ee72d03c02ffdd758b368109599e613858bf5a3953bbc0",
+      "download_size": 72526,
+      "install_size": 250000
     },
     {
       "version": "0.1.0",
