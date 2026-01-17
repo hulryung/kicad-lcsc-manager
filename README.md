@@ -66,9 +66,11 @@ A KiCad plugin that allows you to search and import electronic components from L
      ~/.local/share/kicad/9.0/scripting/plugins/
      ```
 
-3. **Install Python dependencies**
+3. **Install Python dependencies** ⚠️ **REQUIRED**
 
-   The plugin requires additional Python packages. Install them using KiCad's Python:
+   **IMPORTANT**: The plugin will NOT work without these Python packages!
+
+   Install them using KiCad's Python (not your system Python):
 
    **macOS**:
    ```bash
