@@ -41,22 +41,14 @@ jobs:
           chmod +x scripts/bundle-dependencies.sh
           ./scripts/bundle-dependencies.sh
 
-      - name: Create package directory structure
-        run: |
-          mkdir -p release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/resources
-
       - name: Copy plugin files (excluding cache)
         run: |
           rsync -av \
-            --exclude='__pycache__' \
+            --exclude='__pycache__/' \
             --exclude='*.pyc' \
-            --exclude='.pytest_cache' \
-            --exclude='*.egg-info' \
+            --exclude='.pytest_cache/' \
+            --exclude='*.egg-info/' \
             plugins/lcsc_manager/ release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/
-
-      - name: Copy resources
-        run: |
-          cp resources/icon.png release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/resources/
 
       - name: Create package metadata.json
         run: |

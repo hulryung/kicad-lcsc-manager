@@ -26,7 +26,7 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
         self.show_toolbar_button = True
 
         # Store icon path for both light and dark modes
-        icon_path = Path(__file__).parent / "resources" / "icon.png"
+        icon_path = Path(__file__).parent / "plugin_resources" / "icon.png"
         self._icon_path = str(icon_path) if icon_path.exists() else ""
 
         logger.info("LCSC Manager Plugin initialized")
