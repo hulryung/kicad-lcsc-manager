@@ -564,16 +564,24 @@ class LCSCManagerDialog(wx.Dialog):
         symbol_file = lib_path / "symbols" / "lcsc_imported.kicad_sym"
         if symbol_file.exists():
             try:
-                with open(symbol_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    # Look for symbol definition with this name
-                    # Format: (symbol "RP2040" ...
-                    if f'(symbol "{symbol_name}"' in content:
-                        exists["symbol"] = True
+                # Check file size to avoid reading huge files into memory
+                file_size = symbol_file.stat().st_size
+                max_size = 10 * 1024 * 1024  # 10MB limit
+
+                if file_size > max_size:
+                    logger.warning(f"Symbol file too large ({file_size} bytes), skipping content check")
+                    # For very large files, assume symbol might exist to be safe
+                    exists["symbol"] = True
+                else:
+                    with open(symbol_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        # Look for symbol definition with this name
+                        # Format: (symbol "RP2040" ...
+                        if f'(symbol "{symbol_name}"' in content:
+                            exists["symbol"] = True
             except Exception as e:
                 logger.warning(f"Failed to check symbol file: {e}")
-                # If we can't parse it, assume it might exist
-                exists["symbol"] = True
+                # If we can't parse it, leave as False (don't assume exists)
 
         # Check footprint - footprints are separate files
         footprint_name = package.replace(" ", "_").replace(".", "_")

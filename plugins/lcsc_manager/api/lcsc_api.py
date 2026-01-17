@@ -98,6 +98,7 @@ class LCSCAPIClient:
         if timeout is None:
             timeout = self.config.get("api_timeout", 30)
 
+        session = None
         try:
             logger.debug(f"{method} {url} params={params}")
 
@@ -127,6 +128,8 @@ class LCSCAPIClient:
             if e.response.status_code == 403 and retry_count < 3:
                 wait_time = self.RETRY_DELAY * (retry_count + 1)  # Exponential backoff
                 logger.warning(f"Got 403 Forbidden, waiting {wait_time}s before retry {retry_count + 1}/3")
+                if session:
+                    session.close()
                 time.sleep(wait_time)
                 return self._make_request(method, url, params, json_data, timeout, retry_count + 1)
 
@@ -138,6 +141,9 @@ class LCSCAPIClient:
         except ValueError as e:
             logger.error(f"JSON decode error: {e}")
             raise LCSCAPIError(f"Invalid API response: {e}")
+        finally:
+            if session:
+                session.close()
 
     def _get_jlcpcb_info(self, lcsc_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -518,11 +524,13 @@ class LCSCAPIClient:
         """
         logger.info(f"Downloading: {url} -> {output_path}")
 
+        session = None
         try:
             self._rate_limit()
 
             timeout = self.config.get("download_timeout", 60)
-            response = self.session.get(url, timeout=timeout, stream=True)
+            session = self._get_session()
+            response = session.get(url, timeout=timeout, stream=True)
             response.raise_for_status()
 
             # Create parent directory if needed
@@ -539,6 +547,9 @@ class LCSCAPIClient:
         except Exception as e:
             logger.error(f"Download failed: {e}")
             return False
+        finally:
+            if session:
+                session.close()
 
     def get_component_complete(self, lcsc_id: str) -> Optional[Dict[str, Any]]:
         """

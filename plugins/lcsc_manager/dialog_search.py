@@ -280,11 +280,10 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
     def _perform_search(self, search_text, package, page):
         """Perform the actual search"""
+        # Show progress
+        self.results_list.DeleteAllItems()
+        wx.BeginBusyCursor()
         try:
-            # Show progress
-            self.results_list.DeleteAllItems()
-            wx.BeginBusyCursor()
-
             # Call API - pass search_text as component_name, package as filter
             results = self.api_client.advanced_search(
                 component_name=search_text,
@@ -293,8 +292,6 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 manufacturer="",  # Empty
                 page=page
             )
-
-            wx.EndBusyCursor()
 
             if not results:
                 wx.MessageBox(
@@ -317,20 +314,21 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 self.load_more_btn.Enable(False)
 
         except LCSCAPIError as e:
-            wx.EndBusyCursor()
             wx.MessageBox(
                 f"Search failed: {str(e)}",
                 "Search Error",
                 wx.OK | wx.ICON_ERROR
             )
         except Exception as e:
-            wx.EndBusyCursor()
             logger.error(f"Search error: {e}", exc_info=True)
             wx.MessageBox(
                 f"An error occurred: {str(e)}",
                 "Error",
                 wx.OK | wx.ICON_ERROR
             )
+        finally:
+            if wx.IsBusy():
+                wx.EndBusyCursor()
 
     def _populate_results_list(self):
         """Populate results list with search results"""

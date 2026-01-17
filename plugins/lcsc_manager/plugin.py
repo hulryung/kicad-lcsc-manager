@@ -89,14 +89,15 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
                 from .dialog_search import LCSCManagerSearchDialog
                 # Create and show advanced search dialog
                 dialog = LCSCManagerSearchDialog(None, str(project_path))
-                result = dialog.ShowModal()
+                try:
+                    result = dialog.ShowModal()
 
-                if result == wx.ID_OK:
-                    logger.info("Dialog completed successfully")
-                else:
-                    logger.info("Dialog cancelled")
-
-                dialog.Destroy()
+                    if result == wx.ID_OK:
+                        logger.info("Dialog completed successfully")
+                    else:
+                        logger.info("Dialog cancelled")
+                finally:
+                    dialog.Destroy()
                 return
             except ImportError as e:
                 logger.warning(f"Advanced search dialog not available (missing Pillow?): {e}")
@@ -107,14 +108,15 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
 
             # Create and show dialog
             dialog = LCSCManagerDialog(None, project_path)
-            result = dialog.ShowModal()
+            try:
+                result = dialog.ShowModal()
 
-            if result == wx.ID_OK:
-                logger.info("Dialog completed successfully")
-            else:
-                logger.info("Dialog cancelled")
-
-            dialog.Destroy()
+                if result == wx.ID_OK:
+                    logger.info("Dialog completed successfully")
+                else:
+                    logger.info("Dialog cancelled")
+            finally:
+                dialog.Destroy()
 
         except ImportError as e:
             logger.error(f"Failed to import dialog: {e}")

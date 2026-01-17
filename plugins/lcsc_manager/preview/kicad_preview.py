@@ -7,6 +7,8 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import tempfile
 import subprocess
+import shutil
+import sys
 import io
 import wx
 from PIL import Image
@@ -17,18 +19,60 @@ from ..converters.footprint_converter import FootprintConverter
 logger = get_logger()
 
 
+def _find_kicad_cli() -> Optional[str]:
+    """
+    Find KiCad CLI executable based on platform
+
+    Returns:
+        Path to kicad-cli executable, or None if not found
+    """
+    # Platform-specific default paths
+    if sys.platform == "darwin":  # macOS
+        candidates = [
+            "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
+            "/Applications/KiCad 9.0/KiCad.app/Contents/MacOS/kicad-cli",
+        ]
+    elif sys.platform == "win32":  # Windows
+        candidates = [
+            r"C:\Program Files\KiCad\9.0\bin\kicad-cli.exe",
+            r"C:\Program Files\KiCad\8.0\bin\kicad-cli.exe",
+            r"C:\Program Files (x86)\KiCad\9.0\bin\kicad-cli.exe",
+        ]
+    else:  # Linux
+        candidates = [
+            "/usr/bin/kicad-cli",
+            "/usr/local/bin/kicad-cli",
+            "/snap/bin/kicad-cli",
+        ]
+
+    # Check platform-specific paths first
+    for path in candidates:
+        if Path(path).exists():
+            logger.debug(f"Found KiCad CLI at: {path}")
+            return path
+
+    # Fall back to PATH search
+    kicad_cli = shutil.which("kicad-cli")
+    if kicad_cli:
+        logger.debug(f"Found KiCad CLI in PATH: {kicad_cli}")
+        return kicad_cli
+
+    logger.warning("KiCad CLI not found")
+    return None
+
+
 class KiCadPreviewRenderer:
     """Renders symbols and footprints using KiCad's native rendering"""
 
     # Preview image settings
     IMAGE_SIZE = (400, 400)
     BACKGROUND_COLOR = (255, 255, 255)  # White
-    KICAD_CLI = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
 
     def __init__(self):
         self.logger = get_logger("kicad_preview")
         self.symbol_converter = SymbolConverter()
         self.footprint_converter = FootprintConverter()
+        self.kicad_cli = _find_kicad_cli()
 
     def render_symbol(self, easyeda_data: Dict[str, Any], component_info: Dict[str, Any]) -> Optional[wx.Bitmap]:
         """
@@ -43,6 +87,10 @@ class KiCadPreviewRenderer:
         """
         try:
             self.logger.debug("Rendering symbol with KiCad CLI")
+
+            # Check if KiCad CLI is available
+            if not self.kicad_cli:
+                return self._create_placeholder("KiCad CLI not found")
 
             # Create temporary directory
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -59,7 +107,7 @@ class KiCadPreviewRenderer:
 
                 result = subprocess.run(
                     [
-                        self.KICAD_CLI,
+                        self.kicad_cli,
                         "sym", "export", "svg",
                         "--output", str(svg_output),
                         "--black-and-white",
@@ -104,6 +152,10 @@ class KiCadPreviewRenderer:
         try:
             self.logger.debug("Rendering footprint with KiCad CLI")
 
+            # Check if KiCad CLI is available
+            if not self.kicad_cli:
+                return self._create_placeholder("KiCad CLI not found")
+
             # Create temporary directory
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
@@ -124,7 +176,7 @@ class KiCadPreviewRenderer:
 
                 result = subprocess.run(
                     [
-                        self.KICAD_CLI,
+                        self.kicad_cli,
                         "fp", "export", "svg",
                         "--output", str(svg_output),
                         "--layers", "F.Cu,F.SilkS,F.Fab",
