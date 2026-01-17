@@ -50,31 +50,33 @@ else
     echo "Plugin directory not found: $TARGET_DIR"
 fi
 
-# Ask about Python dependencies
+# Python dependencies info
 echo ""
-echo "Python dependencies (requests, pydantic, Pillow, cairosvg) were installed."
-echo "These packages may be used by other plugins or applications."
+echo "════════════════════════════════════════════════════════════════"
+echo "⚠️  WARNING: Python Dependencies"
+echo "════════════════════════════════════════════════════════════════"
 echo ""
-read -p "Remove Python dependencies? (y/N) " -n 1 -r
+echo "The following Python packages were installed for this plugin:"
+echo "  - requests (used by many apps for HTTP requests)"
+echo "  - pydantic (used for data validation)"
+echo "  - Pillow (common image processing library)"
+echo "  - cairosvg (SVG conversion library)"
 echo ""
-
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo ""
-    echo "Removing Python dependencies..."
-
-    # Try to find KiCad's Python
-    KICAD_PYTHON="/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3"
-
-    if [ -f "$KICAD_PYTHON" ]; then
-        echo "Using KiCad's Python: $KICAD_PYTHON"
-        "$KICAD_PYTHON" -m pip uninstall -y requests pydantic Pillow cairosvg 2>/dev/null || echo "Some packages may not have been installed"
-    else
-        echo "Using system Python"
-        pip3 uninstall -y requests pydantic Pillow cairosvg 2>/dev/null || echo "Some packages may not have been installed"
-    fi
-
-    echo "✓ Python dependencies removed (if they were installed)"
-fi
+echo "These packages may be used by:"
+echo "  - Other KiCad plugins"
+echo "  - Other Python applications on your system"
+echo "  - Development tools"
+echo ""
+echo "⚠️  DO NOT REMOVE unless you're certain they're not needed!"
+echo ""
+echo "If you want to remove them manually later, you can use:"
+echo "  pip3 list --user  # To see installed packages"
+echo "  pip3 uninstall <package-name>  # To remove specific packages"
+echo ""
+echo "════════════════════════════════════════════════════════════════"
+echo ""
+echo "We recommend KEEPING the Python packages installed."
+echo ""
 
 # Clean up config and logs (optional)
 echo ""
