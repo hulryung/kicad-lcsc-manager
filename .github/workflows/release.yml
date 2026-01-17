@@ -41,6 +41,10 @@ jobs:
           chmod +x scripts/bundle-dependencies.sh
           ./scripts/bundle-dependencies.sh
 
+      - name: Create release directory
+        run: |
+          mkdir -p release/kicad-lcsc-manager-${{ steps.version.outputs.version }}
+
       - name: Copy plugin files (excluding cache)
         run: |
           rsync -av \
