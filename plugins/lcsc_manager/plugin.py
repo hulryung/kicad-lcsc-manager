@@ -25,14 +25,25 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
         self.description = "Import components from LCSC/EasyEDA and JLCPCB"
         self.show_toolbar_button = True
 
-        # Set icon path
+        # Store icon path for both light and dark modes
         icon_path = Path(__file__).parent / "resources" / "icon.png"
-        if icon_path.exists():
-            self.icon_file_name = str(icon_path)
-        else:
-            self.icon_file_name = ""
+        self._icon_path = str(icon_path) if icon_path.exists() else ""
 
         logger.info("LCSC Manager Plugin initialized")
+
+    def GetIconFileName(self, dark):
+        """
+        Return icon file name for light/dark mode
+
+        Args:
+            dark: True for dark mode icon, False for light mode icon
+
+        Returns:
+            Path to icon file
+        """
+        # For now, use the same icon for both modes
+        # In the future, we could provide separate icons
+        return self._icon_path
 
     def Run(self):
         """
