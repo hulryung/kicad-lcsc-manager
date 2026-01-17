@@ -43,7 +43,7 @@ jobs:
 
       - name: Create package directory structure
         run: |
-          mkdir -p release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/{plugins,resources}
+          mkdir -p release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/resources
 
       - name: Copy plugin files (excluding cache)
         run: |
@@ -52,7 +52,7 @@ jobs:
             --exclude='*.pyc' \
             --exclude='.pytest_cache' \
             --exclude='*.egg-info' \
-            plugins/ release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/plugins/
+            plugins/lcsc_manager/ release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/
 
       - name: Copy resources
         run: |
