@@ -146,6 +146,23 @@ A KiCad plugin that allows you to search and import electronic components from L
 - **Browse quickly**: Click through components rapidly - previews load in the background
 - **Check stock**: Basic parts are usually cheaper and more available than Extended parts
 
+## 🗑️ Uninstallation
+
+To remove the plugin from your system:
+
+```bash
+bash uninstall_test.sh
+```
+
+The script will:
+- Detect and remove the plugin from KiCad plugins directory
+- Optionally remove Python dependencies (if not used by other apps)
+- Optionally remove configuration and logs
+
+Alternatively, manually remove:
+- Plugin: `~/Documents/KiCad/9.0/scripting/plugins/lcsc_manager/`
+- Config/Logs: `~/.kicad/lcsc_manager/`
+
 ## 📋 Requirements
 
 - **KiCad**: 9.0 or later (recommended)
