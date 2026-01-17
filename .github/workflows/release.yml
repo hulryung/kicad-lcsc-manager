@@ -1,0 +1,293 @@
+name: Release Package
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Update version in __init__.py
+        run: |
+          sed -i "s/__version__ = \".*\"/__version__ = \"${{ steps.version.outputs.version }}\"/" plugins/lcsc_manager/__init__.py
+          cat plugins/lcsc_manager/__init__.py | grep __version__
+
+      - name: Create package directory structure
+        run: |
+          mkdir -p release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/{plugins,resources}
+
+      - name: Copy plugin files (excluding cache)
+        run: |
+          rsync -av \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.pytest_cache' \
+            --exclude='*.egg-info' \
+            plugins/ release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/plugins/
+
+      - name: Copy resources
+        run: |
+          cp resources/icon.png release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/resources/
+
+      - name: Create package metadata.json
+        run: |
+          cat > release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/metadata.json << 'EOF'
+          {
+            "$schema": "https://go.kicad.org/pcm/schemas/v1",
+            "name": "LCSC Manager",
+            "description": "Import components from LCSC/EasyEDA with symbols, footprints, and 3D models",
+            "description_full": "A KiCad plugin that allows you to search and import electronic components from LCSC/EasyEDA and JLCPCB directly into your KiCad projects. Features include automatic download of symbols, footprints, and 3D models (both WRL and STEP formats), integration with JLCPCB API for real-time stock and pricing information, and seamless addition to project-specific libraries.",
+            "identifier": "com.github.hulryung.kicad-lcsc-manager",
+            "type": "plugin",
+            "author": {
+              "name": "hulryung",
+              "contact": {
+                "web": "https://github.com/hulryung/kicad-lcsc-manager"
+              }
+            },
+            "license": "MIT",
+            "resources": {
+              "homepage": "https://github.com/hulryung/kicad-lcsc-manager",
+              "repository": "https://github.com/hulryung/kicad-lcsc-manager"
+            },
+            "versions": [
+              {
+                "version": "${{ steps.version.outputs.version }}",
+                "status": "stable",
+                "kicad_version": "9.0"
+              }
+            ]
+          }
+          EOF
+
+      - name: Create package ZIP
+        run: |
+          cd release/kicad-lcsc-manager-${{ steps.version.outputs.version }}
+          zip -r ../kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip .
+          cd ../..
+
+      - name: Verify package structure
+        run: |
+          echo "=== Package contents (first 40 lines) ==="
+          unzip -l release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip | head -40
+          echo ""
+          echo "=== Checking for __pycache__ (should be empty) ==="
+          unzip -l release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip | grep -i pycache || echo "✓ No pycache files found"
+
+      - name: Calculate package SHA256 and size
+        id: package
+        run: |
+          SHA256=$(sha256sum release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip | awk '{print $1}')
+          SIZE=$(stat -c%s release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "size=$SIZE" >> $GITHUB_OUTPUT
+          echo "Package SHA256: $SHA256"
+          echo "Package Size: $SIZE bytes"
+
+      - name: Update metadata.json (repository root)
+        run: |
+          python3 << 'PYTHON_SCRIPT'
+          import json
+          import sys
+
+          version = "${{ steps.version.outputs.version }}"
+          sha256 = "${{ steps.package.outputs.sha256 }}"
+          size = int("${{ steps.package.outputs.size }}")
+
+          # Read existing metadata
+          with open('metadata.json', 'r') as f:
+              metadata = json.load(f)
+
+          # Check if version already exists
+          existing_versions = [v['version'] for v in metadata['versions']]
+
+          # Create new version entry
+          new_version = {
+              "version": version,
+              "status": "stable",
+              "kicad_version": "9.0",
+              "download_url": f"https://github.com/hulryung/kicad-lcsc-manager/releases/download/v{version}/kicad-lcsc-manager-{version}.zip",
+              "download_sha256": sha256,
+              "download_size": size,
+              "install_size": 250000
+          }
+
+          # Update or add version
+          if version in existing_versions:
+              # Update existing version
+              for i, v in enumerate(metadata['versions']):
+                  if v['version'] == version:
+                      metadata['versions'][i] = new_version
+                      break
+          else:
+              # Add new version at the beginning
+              metadata['versions'].insert(0, new_version)
+
+          # Write updated metadata
+          with open('metadata.json', 'w') as f:
+              json.dump(metadata, f, indent=2)
+              f.write('\n')
+
+          print(f"✓ Updated metadata.json with version {version}")
+          PYTHON_SCRIPT
+
+      - name: Update packages.json
+        run: |
+          python3 << 'PYTHON_SCRIPT'
+          import json
+
+          version = "${{ steps.version.outputs.version }}"
+          sha256 = "${{ steps.package.outputs.sha256 }}"
+          size = int("${{ steps.package.outputs.size }}")
+
+          # Read existing packages
+          with open('packages.json', 'r') as f:
+              packages_data = json.load(f)
+
+          # Update first package (should only be one)
+          package = packages_data['packages'][0]
+
+          # Check if version exists
+          existing_versions = [v['version'] for v in package['versions']]
+
+          new_version = {
+              "version": version,
+              "status": "stable",
+              "kicad_version": "9.0",
+              "download_url": f"https://github.com/hulryung/kicad-lcsc-manager/releases/download/v{version}/kicad-lcsc-manager-{version}.zip",
+              "download_sha256": sha256,
+              "download_size": size,
+              "install_size": 250000
+          }
+
+          if version in existing_versions:
+              for i, v in enumerate(package['versions']):
+                  if v['version'] == version:
+                      package['versions'][i] = new_version
+                      break
+          else:
+              package['versions'].insert(0, new_version)
+
+          # Write updated packages
+          with open('packages.json', 'w') as f:
+              json.dump(packages_data, f, indent=2)
+              f.write('\n')
+
+          print(f"✓ Updated packages.json with version {version}")
+          PYTHON_SCRIPT
+
+      - name: Update repository.json
+        run: |
+          python3 << 'PYTHON_SCRIPT'
+          import json
+          import hashlib
+          from datetime import datetime
+
+          # Calculate packages.json SHA256
+          with open('packages.json', 'rb') as f:
+              packages_sha256 = hashlib.sha256(f.read()).hexdigest()
+
+          # Get current UTC time
+          now = datetime.utcnow()
+          update_time = now.strftime('%Y-%m-%d %H:%M:%S')
+          update_timestamp = int(now.timestamp())
+
+          # Read repository.json
+          with open('repository.json', 'r') as f:
+              repo = json.load(f)
+
+          # Update packages info
+          repo['packages']['sha256'] = packages_sha256
+          repo['packages']['update_time_utc'] = update_time
+          repo['packages']['update_timestamp'] = update_timestamp
+
+          # Write updated repository.json
+          with open('repository.json', 'w') as f:
+              json.dump(repo, f, indent=2)
+              f.write('\n')
+
+          print(f"✓ Updated repository.json")
+          print(f"  packages.json SHA256: {packages_sha256}")
+          print(f"  Update time: {update_time}")
+          PYTHON_SCRIPT
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          # Try to get commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "## Changes since $PREV_TAG" > release_notes.md
+            echo "" >> release_notes.md
+            git log $PREV_TAG..HEAD --pretty=format:"- %s" >> release_notes.md
+          else
+            echo "## Release ${{ steps.version.outputs.tag }}" > release_notes.md
+            echo "" >> release_notes.md
+            echo "Initial release" >> release_notes.md
+          fi
+
+          echo "" >> release_notes.md
+          echo "## Installation" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "Install via custom repository URL:" >> release_notes.md
+          echo '```' >> release_notes.md
+          echo "https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/repository.json" >> release_notes.md
+          echo '```' >> release_notes.md
+
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit metadata updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add metadata.json packages.json repository.json plugins/lcsc_manager/__init__.py
+          git commit -m "Update metadata for release ${{ steps.version.outputs.tag }}" || echo "No changes to commit"
+          git push origin HEAD:main || echo "Nothing to push"
+
+      - name: Summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package SHA256**: \`${{ steps.package.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package Size**: ${{ steps.package.outputs.size }} bytes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Installation URL" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/repository.json" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
