@@ -29,22 +29,34 @@ class LCSCAPIClient:
 
     # Rate limiting
     MAX_REQUESTS_PER_MINUTE = 30
-    REQUEST_DELAY = 2.0  # seconds between requests
+    REQUEST_DELAY = 5.0  # seconds between requests
+    RETRY_DELAY = 10.0  # seconds to wait before retry on 403
 
     def __init__(self):
         """Initialize LCSC API client"""
         self.config = get_config()
-        self.session = requests.Session()
+        self.last_request_time = 0
+
+    def _get_session(self):
+        """Get a fresh session with proper headers for each request"""
+        session = requests.Session()
         # Use realistic browser headers to avoid API blocking
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9,ko;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': 'https://jlcpcb.com/',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Referer': 'https://jlcpcb.com/parts',
             'Origin': 'https://jlcpcb.com',
+            'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"macOS"',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'DNT': '1',
         })
-        self.last_request_time = 0
+        return session
 
     def _rate_limit(self):
         """Implement rate limiting to avoid hitting API limits"""
@@ -61,7 +73,8 @@ class LCSCAPIClient:
         url: str,
         params: Optional[Dict] = None,
         json_data: Optional[Dict] = None,
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
+        retry_count: int = 0
     ) -> Dict:
         """
         Make HTTP request with error handling and rate limiting
@@ -72,6 +85,7 @@ class LCSCAPIClient:
             params: Query parameters
             json_data: JSON request body
             timeout: Request timeout in seconds
+            retry_count: Internal retry counter
 
         Returns:
             Response JSON data
@@ -87,12 +101,15 @@ class LCSCAPIClient:
         try:
             logger.debug(f"{method} {url} params={params}")
 
+            # Get fresh session for each request
+            session = self._get_session()
+
             # Add Content-Type for POST requests with JSON data
             headers = {}
             if method.upper() == "POST" and json_data:
                 headers['Content-Type'] = 'application/json;charset=UTF-8'
 
-            response = self.session.request(
+            response = session.request(
                 method=method,
                 url=url,
                 params=params,
@@ -106,6 +123,13 @@ class LCSCAPIClient:
             return response.json()
 
         except requests.exceptions.HTTPError as e:
+            # Retry on 403 Forbidden (rate limiting)
+            if e.response.status_code == 403 and retry_count < 3:
+                wait_time = self.RETRY_DELAY * (retry_count + 1)  # Exponential backoff
+                logger.warning(f"Got 403 Forbidden, waiting {wait_time}s before retry {retry_count + 1}/3")
+                time.sleep(wait_time)
+                return self._make_request(method, url, params, json_data, timeout, retry_count + 1)
+
             logger.error(f"HTTP error: {e}")
             raise LCSCAPIError(f"API request failed: {e}")
         except requests.exceptions.RequestException as e:
@@ -400,6 +424,52 @@ class LCSCAPIClient:
             logger.error(f"Failed to fetch EasyEDA component {uuid}: {e}")
             raise LCSCAPIError(f"EasyEDA fetch failed: {e}")
 
+    def advanced_search(
+        self,
+        component_name: str = "",
+        value: str = "",
+        package: str = "",
+        manufacturer: str = "",
+        page: int = 1
+    ) -> List[Dict[str, Any]]:
+        """
+        Advanced component search with multiple parameters using JLCPCB API
+
+        Args:
+            component_name: Component name or description
+            value: Component value (e.g., "10uF", "10k")
+            package: Package size (e.g., "0603", "SOT23")
+            manufacturer: Manufacturer name
+            page: Page number (default: 1)
+
+        Returns:
+            List of component data dictionaries
+
+        Raises:
+            LCSCAPIError: If search fails
+        """
+        # Build query string from non-empty parameters
+        query_parts = []
+        if component_name:
+            query_parts.append(component_name)
+        if value:
+            query_parts.append(value)
+        if package:
+            query_parts.append(package)
+        if manufacturer:
+            query_parts.append(manufacturer)
+
+        if not query_parts:
+            logger.warning("Advanced search called with no parameters")
+            return []
+
+        # Join parts with spaces
+        query = " ".join(query_parts)
+        logger.info(f"Advanced search query: {query}")
+
+        # Use JLCPCB search API
+        return self.search_jlcpcb(query, page)
+
     def search_easyeda(self, query: str, page: int = 1) -> List[Dict[str, Any]]:
         """
         Search for components on EasyEDA
@@ -493,6 +563,97 @@ class LCSCAPIClient:
         # The EasyEDA data is already included in the component from search_component
         # No need to modify it - it already contains the full API response
         return component
+
+
+    def search_jlcpcb(self, query: str, page: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:
+        """
+        Search for components using JLCPCB API
+
+        Args:
+            query: Search query
+            page: Page number (default: 1)
+            page_size: Results per page (default: 20)
+
+        Returns:
+            List of component data dictionaries with 'lcsc', 'title', 'package', 'uuid'
+
+        Raises:
+            LCSCAPIError: If search fails
+        """
+        logger.info(f"Searching JLCPCB: {query}, page {page}")
+
+        try:
+            url = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList"
+
+            response = self._make_request(
+                method="POST",
+                url=url,
+                json_data={
+                    "keyword": query,
+                    "currentPage": page,
+                    "pageSize": page_size
+                }
+            )
+
+            if response.get("code") != 200:
+                logger.warning(f"JLCPCB search failed: {response.get('msg', 'Unknown error')}")
+                return []
+
+            data = response.get("data", {})
+            component_page_info = data.get("componentPageInfo", {})
+            components = component_page_info.get("list", [])
+
+            if not components:
+                logger.info("No components found in JLCPCB search")
+                return []
+
+            logger.info(f"Found {len(components)} components")
+
+            # Convert JLCPCB format to our internal format
+            results = []
+            for comp in components:
+                # Extract LCSC ID from urlSuffix (e.g., "RaspberryPi-RP2040/C2040" -> "C2040")
+                url_suffix = comp.get("urlSuffix", "")
+                lcsc_id = url_suffix.split("/")[-1] if "/" in url_suffix else ""
+
+                # Get price (first tier price)
+                prices = comp.get("componentPrices", [])
+                price = prices[0].get("productPrice", 0) if prices else 0
+
+                # Get package specification
+                package_spec = comp.get("componentSpecificationEn", "")
+
+                # Get library type (base = Basic, expand = Extended)
+                library_type = comp.get("componentLibraryType", "")
+                if library_type == "base":
+                    type_str = "Basic"
+                elif library_type == "expand":
+                    type_str = "Extended"
+                else:
+                    type_str = ""
+
+                # Create component data in format expected by dialog
+                result = {
+                    "lcsc": {
+                        "number": lcsc_id
+                    },
+                    "title": comp.get("erpComponentName", "Unknown"),
+                    "package": package_spec,  # Use componentSpecificationEn for package
+                    "description": comp.get("describe", ""),
+                    "uuid": lcsc_id,  # Use LCSC ID as UUID for fetching later
+                    "stockCount": comp.get("stockCount", 0),
+                    "componentId": comp.get("componentId"),
+                    "price": price,  # Add price field
+                    "category": comp.get("componentTypeEn", ""),  # Component category
+                    "libraryType": type_str,  # Basic or Extended
+                }
+                results.append(result)
+
+            return results
+
+        except Exception as e:
+            logger.error(f"JLCPCB search error: {e}", exc_info=True)
+            raise LCSCAPIError(f"JLCPCB search failed: {e}")
 
 
 # Singleton instance

@@ -73,7 +73,25 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
             project_path: Path to the current KiCad project
         """
         try:
-            # Import dialog here to avoid circular imports
+            # Try to import advanced search dialog first
+            try:
+                from .dialog_search import LCSCManagerSearchDialog
+                # Create and show advanced search dialog
+                dialog = LCSCManagerSearchDialog(None, str(project_path))
+                result = dialog.ShowModal()
+
+                if result == wx.ID_OK:
+                    logger.info("Dialog completed successfully")
+                else:
+                    logger.info("Dialog cancelled")
+
+                dialog.Destroy()
+                return
+            except ImportError as e:
+                logger.warning(f"Advanced search dialog not available (missing Pillow?): {e}")
+                logger.info("Falling back to simple dialog")
+
+            # Fallback to basic dialog
             from .dialog import LCSCManagerDialog
 
             # Create and show dialog
@@ -89,7 +107,7 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
 
         except ImportError as e:
             logger.error(f"Failed to import dialog: {e}")
-            # Fallback to simple input dialog
+            # Last resort: simple input dialog
             self._show_simple_dialog(project_path)
         except Exception as e:
             logger.error(f"Dialog error: {e}", exc_info=True)
