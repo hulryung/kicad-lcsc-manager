@@ -36,7 +36,7 @@ A KiCad plugin that allows you to search and import electronic components from L
 4. Click **Add Repository**
 5. Enter the following URL:
    ```
-   https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/metadata.json
+   https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/repository.json
    ```
 6. Click **OK** and close the repository manager
 7. Search for **"LCSC Manager"** in the PCM
