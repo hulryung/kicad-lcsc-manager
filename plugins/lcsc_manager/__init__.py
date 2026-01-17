@@ -5,7 +5,7 @@ This plugin allows importing components from LCSC/EasyEDA and JLCPCB
 directly into KiCad projects with symbols, footprints, and 3D models.
 """
 
-__version__ = "0.2.2"
+__version__ = "0.2.4"
 __author__ = "hulryung"
 __license__ = "MIT"
 

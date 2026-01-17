@@ -616,6 +616,13 @@ class LCSCAPIClient:
                 url_suffix = comp.get("urlSuffix", "")
                 lcsc_id = url_suffix.split("/")[-1] if "/" in url_suffix else ""
 
+                # Debug: log available name fields for first component
+                if len(results) == 0 and lcsc_id:
+                    logger.debug(f"Sample component {lcsc_id} name fields:")
+                    logger.debug(f"  componentModelEn: {comp.get('componentModelEn')}")
+                    logger.debug(f"  componentName: {comp.get('componentName')}")
+                    logger.debug(f"  erpComponentName: {comp.get('erpComponentName')}")
+
                 # Get price (first tier price)
                 prices = comp.get("componentPrices", [])
                 price = prices[0].get("productPrice", 0) if prices else 0
@@ -633,11 +640,18 @@ class LCSCAPIClient:
                     type_str = ""
 
                 # Create component data in format expected by dialog
+                # Priority for name: componentModelEn > componentName > erpComponentName
+                name = (
+                    comp.get("componentModelEn") or
+                    comp.get("componentName") or
+                    comp.get("erpComponentName", "Unknown")
+                ).strip()
+
                 result = {
                     "lcsc": {
                         "number": lcsc_id
                     },
-                    "title": comp.get("erpComponentName", "Unknown"),
+                    "title": name,
                     "package": package_spec,  # Use componentSpecificationEn for package
                     "description": comp.get("describe", ""),
                     "uuid": lcsc_id,  # Use LCSC ID as UUID for fetching later

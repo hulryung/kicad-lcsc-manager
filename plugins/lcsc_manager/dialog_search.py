@@ -217,6 +217,20 @@ class LCSCManagerSearchDialog(wx.Dialog):
         footprint_panel.SetSizer(footprint_sizer)
         self.preview_notebook.AddPage(footprint_panel, "Footprint")
 
+        # Specifications tab
+        specs_panel = wx.Panel(self.preview_notebook)
+        specs_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.specs_text = wx.TextCtrl(
+            specs_panel,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2 | wx.TE_WORDWRAP
+        )
+        # Set monospace font for better alignment
+        font = wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        self.specs_text.SetFont(font)
+        specs_sizer.Add(self.specs_text, 1, wx.EXPAND | wx.ALL, 10)
+        specs_panel.SetSizer(specs_sizer)
+        self.preview_notebook.AddPage(specs_panel, "Specifications")
+
         sizer.Add(self.preview_notebook, 1, wx.EXPAND | wx.ALL, 5)
 
         panel.SetSizer(sizer)
@@ -419,7 +433,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
         # Show loading placeholder immediately
         loading_bitmap = self.kicad_renderer._create_placeholder("Loading...")
-        self._display_previews(loading_bitmap, loading_bitmap)
+        self._display_previews(loading_bitmap, loading_bitmap, "Loading component information...")
 
         # Load previews in background thread
         thread = threading.Thread(
@@ -456,7 +470,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
                     wx.CallAfter(
                         self._display_previews,
                         cached['symbol'],
-                        cached['footprint']
+                        cached['footprint'],
+                        cached.get('specs', '')
                     )
                 return
 
@@ -473,8 +488,9 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 # Show placeholder for components not in EasyEDA
                 symbol_bitmap = self.kicad_renderer._create_placeholder("Not available\nin EasyEDA")
                 footprint_bitmap = self.kicad_renderer._create_placeholder("Not available\nin EasyEDA")
+                specs_text = f"Component {lcsc_id} not found in EasyEDA database."
                 if thread_id == self.preview_thread_id:
-                    wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap)
+                    wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap, specs_text)
                 return
 
             # Extract EasyEDA data from component
@@ -484,8 +500,10 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 # Show placeholder for components without EasyEDA data
                 symbol_bitmap = self.kicad_renderer._create_placeholder("No preview data")
                 footprint_bitmap = self.kicad_renderer._create_placeholder("No preview data")
+                # Still show basic specs even without EasyEDA data
+                specs_text = self._format_specifications(component_data)
                 if thread_id == self.preview_thread_id:
-                    wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap)
+                    wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap, specs_text)
                 return
 
             # Check if still valid before rendering (rendering is slow)
@@ -496,6 +514,9 @@ class LCSCManagerSearchDialog(wx.Dialog):
             # Render previews using KiCad native rendering
             symbol_bitmap = self.kicad_renderer.render_symbol(easyeda_data, component_data)
             footprint_bitmap = self.kicad_renderer.render_footprint(easyeda_data, component_data)
+
+            # Format specifications
+            specs_text = self._format_specifications(component_data)
 
             logger.debug(f"Rendered previews - Symbol: {symbol_bitmap is not None}, Footprint: {footprint_bitmap is not None}")
 
@@ -508,22 +529,117 @@ class LCSCManagerSearchDialog(wx.Dialog):
             self.preview_cache[lcsc_id] = {
                 'symbol': symbol_bitmap,
                 'footprint': footprint_bitmap,
+                'specs': specs_text,
                 'easyeda_data': easyeda_data,
                 'component_data': component_data
             }
 
             # Display in main thread
-            wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap)
+            wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap, specs_text)
 
         except Exception as e:
             logger.error(f"Failed to load previews: {e}", exc_info=True)
             # Show error placeholder
             error_bitmap = self.kicad_renderer._create_placeholder("Load failed")
+            error_text = f"Failed to load component information:\n\n{str(e)}"
             if thread_id == self.preview_thread_id:
-                wx.CallAfter(self._display_previews, error_bitmap, error_bitmap)
+                wx.CallAfter(self._display_previews, error_bitmap, error_bitmap, error_text)
 
-    def _display_previews(self, symbol_bitmap, footprint_bitmap):
-        """Display preview bitmaps"""
+    def _format_specifications(self, component_data: Dict[str, Any]) -> str:
+        """Format component data as detailed specifications text"""
+        specs = []
+
+        # Header
+        specs.append("=" * 60)
+        specs.append("COMPONENT SPECIFICATIONS")
+        specs.append("=" * 60)
+        specs.append("")
+
+        # Basic Information
+        specs.append("BASIC INFORMATION")
+        specs.append("-" * 60)
+        specs.append(f"LCSC ID:              {component_data.get('lcsc_id', 'N/A')}")
+        specs.append(f"Name:                 {component_data.get('name', 'N/A')}")
+        specs.append(f"Manufacturer:         {component_data.get('manufacturer', 'N/A')}")
+        specs.append(f"Manufacturer Part:    {component_data.get('manufacturer_part', 'N/A')}")
+        specs.append(f"Package:              {component_data.get('package', 'N/A')}")
+        specs.append(f"Description:          {component_data.get('description', 'N/A')}")
+        specs.append(f"Category:             {component_data.get('category', 'N/A')}")
+        specs.append("")
+
+        # JLCPCB Information
+        specs.append("JLCPCB INFORMATION")
+        specs.append("-" * 60)
+        specs.append(f"Part Class:           {component_data.get('jlcpcb_class', 'N/A')}")
+        smt_status = "SMT" if component_data.get('smt', False) else "Through-hole"
+        specs.append(f"Mounting Type:        {smt_status}")
+        specs.append(f"Stock:                {component_data.get('stock', 0):,}")
+        specs.append("")
+
+        # Pricing Information
+        specs.append("PRICING")
+        specs.append("-" * 60)
+        prices = component_data.get('price', [])
+        if prices:
+            for price_tier in prices:
+                qty = price_tier.get('qty', 0)
+                qty_max = price_tier.get('qty_max')
+                price = price_tier.get('price', 0)
+
+                if qty_max:
+                    qty_range = f"{qty}-{qty_max}"
+                else:
+                    qty_range = f"{qty}+"
+
+                specs.append(f"  {qty_range:>15}:  ${price:.4f}")
+        else:
+            specs.append("  No pricing information available")
+        specs.append("")
+
+        # Additional Parameters (from c_para in easyeda_data)
+        easyeda_data = component_data.get('easyeda_data', {})
+        if easyeda_data and 'dataStr' in easyeda_data and 'head' in easyeda_data['dataStr']:
+            c_para = easyeda_data['dataStr']['head'].get('c_para', {})
+
+            # Filter out already displayed parameters
+            excluded_keys = {
+                'name', 'Manufacturer', 'Manufacturer Part', 'package',
+                'pre', 'JLCPCB Part Class', 'Supplier', 'Supplier Part'
+            }
+
+            additional_params = {k: v for k, v in c_para.items() if k not in excluded_keys and v}
+
+            if additional_params:
+                specs.append("ADDITIONAL SPECIFICATIONS")
+                specs.append("-" * 60)
+                for key, value in sorted(additional_params.items()):
+                    # Format key to be more readable
+                    formatted_key = key.replace('_', ' ').title()
+                    specs.append(f"{formatted_key:>25}: {value}")
+                specs.append("")
+
+        # Links
+        specs.append("LINKS")
+        specs.append("-" * 60)
+        datasheet = component_data.get('datasheet', '')
+        if datasheet:
+            specs.append(f"Datasheet:            {datasheet}")
+
+        url = component_data.get('url', '')
+        if url:
+            specs.append(f"LCSC Product Page:    {url}")
+        else:
+            lcsc_id = component_data.get('lcsc_id', '')
+            if lcsc_id:
+                specs.append(f"LCSC Product Page:    https://www.lcsc.com/product-detail/{lcsc_id}.html")
+
+        specs.append("")
+        specs.append("=" * 60)
+
+        return "\n".join(specs)
+
+    def _display_previews(self, symbol_bitmap, footprint_bitmap, specs_text=None):
+        """Display preview bitmaps and specifications"""
         if symbol_bitmap:
             logger.debug(f"Setting symbol bitmap: {symbol_bitmap.GetSize()}, valid={symbol_bitmap.IsOk()}")
             self.symbol_preview.SetBitmap(symbol_bitmap)
@@ -534,6 +650,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
             self.footprint_preview.SetBitmap(footprint_bitmap)
             self.footprint_preview.SetMinSize(footprint_bitmap.GetSize())
             self.footprint_preview.Refresh()
+        if specs_text is not None:
+            self.specs_text.SetValue(specs_text)
 
         # Force layout update
         self.preview_notebook.Layout()
