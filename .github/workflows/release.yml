@@ -36,6 +36,11 @@ jobs:
           sed -i "s/__version__ = \".*\"/__version__ = \"${{ steps.version.outputs.version }}\"/" plugins/lcsc_manager/__init__.py
           cat plugins/lcsc_manager/__init__.py | grep __version__
 
+      - name: Bundle Python dependencies
+        run: |
+          chmod +x scripts/bundle-dependencies.sh
+          ./scripts/bundle-dependencies.sh
+
       - name: Create package directory structure
         run: |
           mkdir -p release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/{plugins,resources}

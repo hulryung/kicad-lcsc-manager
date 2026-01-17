@@ -56,3 +56,6 @@ plugins/lcsc_manager/resources/.icon_placeholder
 
 # Release artifacts
 release/
+
+# Bundled Python dependencies
+plugins/lcsc_manager/lib/
