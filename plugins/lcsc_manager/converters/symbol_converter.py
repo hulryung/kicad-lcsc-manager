@@ -8,7 +8,10 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 from ..utils.logger import get_logger
 from ..utils.config import get_config
-from .jlc2kicad import symbol_handlers
+try:
+    from .jlc2kicad import symbol_handlers
+except ImportError:
+    symbol_handlers = None
 
 logger = get_logger()
 
@@ -114,6 +117,9 @@ class SymbolConverter:
         kicad_symbol.drawing += f'\n    (symbol "{symbol_name}_1_1"'
 
         # Parse each shape element using handlers
+        if symbol_handlers is None:
+            raise ValueError("symbol_handlers not available (missing KicadModTree?)")
+
         for line in symbol_shape:
             args = [i for i in line.split("~")]
             model = args[0]
