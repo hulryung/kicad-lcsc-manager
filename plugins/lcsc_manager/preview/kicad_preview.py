@@ -1,255 +1,265 @@
 """
-KiCad Native Preview Renderer
+KiCad Preview Renderer
 
-Uses KiCad's CLI tools to render symbols and footprints natively.
+Fetches pre-rendered SVGs from EasyEDA's API for fast, accurate previews.
+Falls back to KiCad CLI rendering if the API is unavailable.
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 import tempfile
 import subprocess
 import shutil
 import sys
 import io
+import requests
 import wx
 from PIL import Image
 from ..utils.logger import get_logger
-from ..converters.symbol_converter import SymbolConverter
-from ..converters.footprint_converter import FootprintConverter
 
 logger = get_logger()
 
 
-def _find_kicad_cli() -> Optional[str]:
-    """
-    Find KiCad CLI executable based on platform
+# EasyEDA docType constants
+DOCTYPE_SYMBOL = 2
+DOCTYPE_FOOTPRINT = 4
 
-    Returns:
-        Path to kicad-cli executable, or None if not found
-    """
-    # Platform-specific default paths
-    if sys.platform == "darwin":  # macOS
+
+def _find_kicad_cli() -> Optional[str]:
+    """Find KiCad CLI executable based on platform"""
+    if sys.platform == "darwin":
         candidates = [
             "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
             "/Applications/KiCad 9.0/KiCad.app/Contents/MacOS/kicad-cli",
         ]
-    elif sys.platform == "win32":  # Windows
+    elif sys.platform == "win32":
         candidates = [
             r"C:\Program Files\KiCad\9.0\bin\kicad-cli.exe",
             r"C:\Program Files\KiCad\8.0\bin\kicad-cli.exe",
             r"C:\Program Files (x86)\KiCad\9.0\bin\kicad-cli.exe",
         ]
-    else:  # Linux
+    else:
         candidates = [
             "/usr/bin/kicad-cli",
             "/usr/local/bin/kicad-cli",
             "/snap/bin/kicad-cli",
         ]
 
-    # Check platform-specific paths first
     for path in candidates:
         if Path(path).exists():
-            logger.debug(f"Found KiCad CLI at: {path}")
             return path
 
-    # Fall back to PATH search
-    kicad_cli = shutil.which("kicad-cli")
-    if kicad_cli:
-        logger.debug(f"Found KiCad CLI in PATH: {kicad_cli}")
-        return kicad_cli
-
-    logger.warning("KiCad CLI not found")
-    return None
+    return shutil.which("kicad-cli")
 
 
 class KiCadPreviewRenderer:
-    """Renders symbols and footprints using KiCad's native rendering"""
+    """Renders symbols and footprints using EasyEDA SVG API or KiCad CLI fallback"""
 
-    # Preview image settings
     IMAGE_SIZE = (400, 400)
-    BACKGROUND_COLOR = (255, 255, 255)  # White
+    BACKGROUND_COLOR = (255, 255, 255)
+
+    # EasyEDA SVG API endpoint
+    EASYEDA_SVG_URL = "https://easyeda.com/api/products/{lcsc_id}/svgs"
 
     def __init__(self):
         self.logger = get_logger("kicad_preview")
-        self.symbol_converter = SymbolConverter()
-        self.footprint_converter = FootprintConverter()
         self.kicad_cli = _find_kicad_cli()
+        # Cache fetched SVG data per LCSC ID
+        self._svg_cache: Dict[str, Optional[List]] = {}
+
+    def _fetch_easyeda_svgs(self, lcsc_id: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fetch pre-rendered SVGs from EasyEDA API.
+
+        Returns list of SVG entries with docType, svg, and bbox fields.
+        Results are cached per LCSC ID.
+        """
+        if lcsc_id in self._svg_cache:
+            return self._svg_cache[lcsc_id]
+
+        try:
+            url = self.EASYEDA_SVG_URL.format(lcsc_id=lcsc_id)
+            self.logger.debug(f"Fetching SVGs from: {url}")
+
+            response = requests.get(url, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                              'AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+            })
+            response.raise_for_status()
+            data = response.json()
+
+            if not data.get("success"):
+                self.logger.warning(f"EasyEDA SVG API failed for {lcsc_id}")
+                self._svg_cache[lcsc_id] = None
+                return None
+
+            result = data.get("result", [])
+            self._svg_cache[lcsc_id] = result
+            self.logger.debug(f"Fetched {len(result)} SVGs for {lcsc_id}")
+            return result
+
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch EasyEDA SVGs: {e}")
+            self._svg_cache[lcsc_id] = None
+            return None
+
+    def _get_svg_by_doctype(self, svgs: List[Dict[str, Any]], doc_type: int) -> Optional[str]:
+        """Extract SVG string for a specific docType from API results."""
+        for entry in svgs:
+            if entry.get("docType") == doc_type:
+                return entry.get("svg")
+        return None
 
     def render_symbol(self, easyeda_data: Dict[str, Any], component_info: Dict[str, Any]) -> Optional[wx.Bitmap]:
-        """
-        Render symbol using KiCad's native rendering
+        """Render symbol preview, trying EasyEDA SVG API first."""
+        lcsc_id = component_info.get("lcsc_id", "")
 
-        Args:
-            easyeda_data: Complete EasyEDA API response
-            component_info: Component metadata
+        # Try EasyEDA pre-rendered SVG
+        if lcsc_id:
+            bitmap = self._render_from_easyeda_svg(lcsc_id, DOCTYPE_SYMBOL)
+            if bitmap:
+                return bitmap
 
-        Returns:
-            wx.Bitmap for display, or None if rendering fails
-        """
+        # Fallback to KiCad CLI
+        return self._render_symbol_kicad_cli(easyeda_data, component_info)
+
+    def render_footprint(self, easyeda_data: Dict[str, Any], component_info: Dict[str, Any]) -> Optional[wx.Bitmap]:
+        """Render footprint preview, trying EasyEDA SVG API first."""
+        lcsc_id = component_info.get("lcsc_id", "")
+
+        # Try EasyEDA pre-rendered SVG
+        if lcsc_id:
+            bitmap = self._render_from_easyeda_svg(lcsc_id, DOCTYPE_FOOTPRINT)
+            if bitmap:
+                return bitmap
+
+        # Fallback to KiCad CLI
+        return self._render_footprint_kicad_cli(easyeda_data, component_info)
+
+    def _render_from_easyeda_svg(self, lcsc_id: str, doc_type: int) -> Optional[wx.Bitmap]:
+        """Render preview from EasyEDA pre-rendered SVG."""
         try:
-            self.logger.debug("Rendering symbol with KiCad CLI")
+            svgs = self._fetch_easyeda_svgs(lcsc_id)
+            if not svgs:
+                return None
 
-            # Check if KiCad CLI is available
+            svg_str = self._get_svg_by_doctype(svgs, doc_type)
+            if not svg_str:
+                self.logger.debug(f"No SVG for docType={doc_type} in {lcsc_id}")
+                return None
+
+            # Write SVG to temp file and render
+            with tempfile.NamedTemporaryFile(suffix='.svg', mode='w',
+                                              encoding='utf-8', delete=False) as f:
+                f.write(svg_str)
+                svg_path = Path(f.name)
+
+            try:
+                bitmap = self._svg_to_bitmap_wx(svg_path)
+                self.logger.debug(f"Rendered {lcsc_id} docType={doc_type} from EasyEDA SVG")
+                return bitmap
+            finally:
+                svg_path.unlink(missing_ok=True)
+
+        except Exception as e:
+            self.logger.warning(f"EasyEDA SVG rendering failed: {e}")
+            return None
+
+    def _render_symbol_kicad_cli(self, easyeda_data: Dict[str, Any], component_info: Dict[str, Any]) -> Optional[wx.Bitmap]:
+        """Render symbol using KiCad CLI (fallback)."""
+        try:
             if not self.kicad_cli:
-                return self._create_placeholder("KiCad CLI not found")
+                return self._create_placeholder("Preview unavailable")
 
-            # Create temporary directory
+            from ..converters.symbol_converter import SymbolConverter
+            converter = SymbolConverter()
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
 
-                # Generate symbol file
-                symbol_content = self.symbol_converter.convert(easyeda_data, component_info)
+                symbol_content = converter.convert(easyeda_data, component_info)
                 symbol_lib_file = temp_path / "temp.kicad_sym"
                 symbol_lib_file.write_text(symbol_content, encoding='utf-8')
 
-                # Export to SVG using KiCad CLI
                 svg_output = temp_path / "output"
                 svg_output.mkdir(exist_ok=True)
 
                 result = subprocess.run(
-                    [
-                        self.kicad_cli,
-                        "sym", "export", "svg",
-                        "--output", str(svg_output),
-                        "--black-and-white",
-                        str(symbol_lib_file)
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
+                    [self.kicad_cli, "sym", "export", "svg",
+                     "--output", str(svg_output), "--black-and-white",
+                     str(symbol_lib_file)],
+                    capture_output=True, text=True, timeout=10
                 )
 
                 if result.returncode != 0:
                     self.logger.error(f"KiCad CLI failed: {result.stderr}")
                     return self._create_placeholder("KiCad export failed")
 
-                # Find generated SVG file
                 svg_files = list(svg_output.glob("*.svg"))
                 if not svg_files:
-                    self.logger.warning("No SVG file generated")
                     return self._create_placeholder("No output generated")
 
-                # Convert SVG to bitmap (symbol with high quality)
-                return self._svg_to_bitmap(svg_files[0], scale=5.0, is_footprint=False)
+                return self._svg_to_bitmap_wx(svg_files[0])
 
         except subprocess.TimeoutExpired:
-            self.logger.error("KiCad CLI timeout")
             return self._create_placeholder("Render timeout")
         except Exception as e:
             self.logger.error(f"Symbol rendering failed: {e}", exc_info=True)
             return self._create_placeholder("Render error")
 
-    def render_footprint(self, easyeda_data: Dict[str, Any], component_info: Dict[str, Any]) -> Optional[wx.Bitmap]:
-        """
-        Render footprint using KiCad's native rendering
-
-        Args:
-            easyeda_data: Complete EasyEDA API response
-            component_info: Component metadata
-
-        Returns:
-            wx.Bitmap for display, or None if rendering fails
-        """
+    def _render_footprint_kicad_cli(self, easyeda_data: Dict[str, Any], component_info: Dict[str, Any]) -> Optional[wx.Bitmap]:
+        """Render footprint using KiCad CLI (fallback)."""
         try:
-            self.logger.debug("Rendering footprint with KiCad CLI")
-
-            # Check if KiCad CLI is available
             if not self.kicad_cli:
-                return self._create_placeholder("KiCad CLI not found")
+                return self._create_placeholder("Preview unavailable")
 
-            # Create temporary directory
+            from ..converters.footprint_converter import FootprintConverter
+            converter = FootprintConverter()
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
 
-                # Create footprint library directory
                 fp_lib_dir = temp_path / "temp.pretty"
                 fp_lib_dir.mkdir(exist_ok=True)
 
-                # Generate footprint file
-                footprint_content = self.footprint_converter.convert(easyeda_data, component_info)
+                footprint_content = converter.convert(easyeda_data, component_info)
                 footprint_name = component_info.get("package", "footprint")
                 fp_file = fp_lib_dir / f"{footprint_name}.kicad_mod"
                 fp_file.write_text(footprint_content, encoding='utf-8')
 
-                # Export to SVG using KiCad CLI
                 svg_output = temp_path / "output"
                 svg_output.mkdir(exist_ok=True)
 
                 result = subprocess.run(
-                    [
-                        self.kicad_cli,
-                        "fp", "export", "svg",
-                        "--output", str(svg_output),
-                        "--layers", "F.Cu,F.SilkS,F.Fab",
-                        "--black-and-white",
-                        str(fp_lib_dir)
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
+                    [self.kicad_cli, "fp", "export", "svg",
+                     "--output", str(svg_output),
+                     "--layers", "F.Cu,F.SilkS,F.Fab",
+                     "--black-and-white", str(fp_lib_dir)],
+                    capture_output=True, text=True, timeout=10
                 )
 
                 if result.returncode != 0:
                     self.logger.error(f"KiCad CLI failed: {result.stderr}")
                     return self._create_placeholder("KiCad export failed")
 
-                # Find generated SVG file
                 svg_files = list(svg_output.glob("*.svg"))
                 if not svg_files:
-                    self.logger.warning("No SVG file generated")
                     return self._create_placeholder("No output generated")
 
-                # Convert SVG to bitmap (footprint with higher zoom)
-                return self._svg_to_bitmap(svg_files[0], scale=5.0, is_footprint=True)
+                return self._svg_to_bitmap_wx(svg_files[0])
 
         except subprocess.TimeoutExpired:
-            self.logger.error("KiCad CLI timeout")
             return self._create_placeholder("Render timeout")
         except Exception as e:
             self.logger.error(f"Footprint rendering failed: {e}", exc_info=True)
             return self._create_placeholder("Render error")
 
-    def _svg_to_bitmap(self, svg_path: Path, scale: float = 5.0, is_footprint: bool = False) -> wx.Bitmap:
+    def _svg_to_bitmap_wx(self, svg_path: Path) -> wx.Bitmap:
         """
-        Convert SVG file to wx.Bitmap with high quality
-
-        Tries renderers in order:
-        1. wx.svg.SVGimage (built-in, no extra deps)
-        2. cairosvg (if installed)
-        3. Placeholder with error message
-
-        Args:
-            svg_path: Path to SVG file
-            scale: Scale factor for higher resolution
-            is_footprint: If True, apply additional zoom for footprints
-
-        Returns:
-            wx.Bitmap
-        """
-        # Try wx.svg first (available in wxPython 4.1+, bundled with KiCad)
-        try:
-            return self._svg_to_bitmap_wx(svg_path, is_footprint)
-        except Exception as e:
-            self.logger.debug(f"wx.svg rendering failed: {e}")
-
-        # Try cairosvg
-        try:
-            return self._svg_to_bitmap_cairosvg(svg_path, scale, is_footprint)
-        except ImportError:
-            self.logger.debug("cairosvg not available")
-        except Exception as e:
-            self.logger.debug(f"cairosvg rendering failed: {e}")
-
-        self.logger.error("All SVG renderers failed")
-        return self._create_placeholder("SVG rendering failed")
-
-    def _svg_to_bitmap_wx(self, svg_path: Path, is_footprint: bool = False) -> wx.Bitmap:
-        """
-        Convert SVG to wx.Bitmap using wx.svg.SVGimage (built-in).
+        Convert SVG file to wx.Bitmap using wx.svg.SVGimage.
 
         Handles alpha channel by compositing onto white background.
-
-        Raises:
-            Exception: If rendering fails
+        Crops to content and centers on white canvas.
         """
         from wx.svg import SVGimage
 
@@ -257,7 +267,7 @@ class KiCadPreviewRenderer:
         if svg_img.width <= 0 or svg_img.height <= 0:
             raise RuntimeError("SVGimage failed to load SVG")
 
-        # Render at high resolution then scale down for quality
+        # Render at 2x resolution for quality
         render_width = int(self.IMAGE_SIZE[0] * 2)
         render_height = int(self.IMAGE_SIZE[1] * 2)
 
@@ -269,7 +279,6 @@ class KiCadPreviewRenderer:
         rgb_data = bytes(wx_img.GetData())
 
         if wx_img.HasAlpha():
-            # SVG renders with transparency - composite onto white
             alpha_data = bytes(wx_img.GetAlpha())
             pil_rgb = Image.frombytes('RGB', (width, height), rgb_data)
             pil_alpha = Image.frombytes('L', (width, height), alpha_data)
@@ -277,10 +286,8 @@ class KiCadPreviewRenderer:
             pil_rgba.putalpha(pil_alpha)
             pil_image = Image.new('RGB', (width, height), self.BACKGROUND_COLOR)
             pil_image.paste(pil_rgba, mask=pil_alpha)
-            self.logger.debug(f"SVG rendered with alpha: {width}x{height}")
         else:
             pil_image = Image.frombytes('RGB', (width, height), rgb_data)
-            self.logger.debug(f"SVG rendered without alpha: {width}x{height}")
 
         # Crop to content (remove whitespace around the drawing)
         bbox = pil_image.convert('L').point(lambda x: 0 if x > 250 else 255).getbbox()
@@ -296,79 +303,6 @@ class KiCadPreviewRenderer:
 
         # Scale to fit display size
         pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
-
-        # Center on white background
-        final_image = Image.new('RGB', self.IMAGE_SIZE, self.BACKGROUND_COLOR)
-        offset = (
-            (self.IMAGE_SIZE[0] - pil_image.size[0]) // 2,
-            (self.IMAGE_SIZE[1] - pil_image.size[1]) // 2
-        )
-        final_image.paste(pil_image, offset)
-
-        return self._pil_to_wx_bitmap(final_image)
-
-    def _svg_to_bitmap_cairosvg(self, svg_path: Path, scale: float = 5.0, is_footprint: bool = False) -> wx.Bitmap:
-        """
-        Convert SVG to wx.Bitmap using cairosvg.
-
-        Raises:
-            ImportError: If cairosvg is not installed
-            Exception: If rendering fails
-        """
-        import cairosvg
-        import xml.etree.ElementTree as ET
-        from PIL import ImageFilter, ImageEnhance
-
-        # Parse SVG to get viewBox for intelligent scaling
-        tree = ET.parse(svg_path)
-        root = tree.getroot()
-        viewbox = root.get('viewBox')
-
-        if viewbox and is_footprint:
-            parts = viewbox.split()
-            if len(parts) == 4:
-                svg_width = float(parts[2])
-                svg_height = float(parts[3])
-                max_dim = max(svg_width, svg_height)
-                if max_dim > 1000:
-                    scale = scale * 2.0
-                self.logger.debug(f"Footprint SVG size: {svg_width}x{svg_height}, scale: {scale}")
-
-        output_width = int(self.IMAGE_SIZE[0] * scale)
-        output_height = int(self.IMAGE_SIZE[1] * scale)
-
-        png_data = cairosvg.svg2png(
-            url=str(svg_path),
-            output_width=output_width,
-            output_height=output_height
-        )
-        pil_image = Image.open(io.BytesIO(png_data))
-
-        # Crop to content for footprints
-        if is_footprint:
-            bbox = pil_image.convert('L').getbbox()
-            if bbox:
-                margin = int(20 * scale)
-                bbox = (
-                    max(0, bbox[0] - margin),
-                    max(0, bbox[1] - margin),
-                    min(pil_image.width, bbox[2] + margin),
-                    min(pil_image.height, bbox[3] + margin)
-                )
-                pil_image = pil_image.crop(bbox)
-
-        pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
-        pil_image = pil_image.filter(ImageFilter.SHARPEN)
-        enhancer = ImageEnhance.Contrast(pil_image)
-        pil_image = enhancer.enhance(1.1)
-
-        # Handle RGBA
-        if pil_image.mode == 'RGBA':
-            bg = Image.new('RGB', pil_image.size, self.BACKGROUND_COLOR)
-            bg.paste(pil_image, mask=pil_image.split()[3])
-            pil_image = bg
-        elif pil_image.mode != 'RGB':
-            pil_image = pil_image.convert('RGB')
 
         # Center on white background
         final_image = Image.new('RGB', self.IMAGE_SIZE, self.BACKGROUND_COLOR)

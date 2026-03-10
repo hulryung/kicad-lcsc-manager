@@ -4,14 +4,15 @@ Advanced Search Dialog for LCSC Manager
 Provides component search with multiple parameters and preview functionality.
 """
 import wx
+import wx.html2
 import threading
+import requests
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from .api.lcsc_api import get_api_client, LCSCAPIError
 from .library.library_manager import LibraryManager
 from .utils.logger import get_logger
-from .preview.kicad_preview import KiCadPreviewRenderer
 
 logger = get_logger()
 
@@ -37,8 +38,9 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self.api_client = get_api_client()
         self.library_manager = LibraryManager(self.project_path)
 
-        # Preview renderers - use KiCad native rendering
-        self.kicad_renderer = KiCadPreviewRenderer()
+        # EasyEDA SVG API
+        self.EASYEDA_SVG_URL = "https://easyeda.com/api/products/{lcsc_id}/svgs"
+        self._svg_cache: Dict[str, Optional[List]] = {}
 
         # Data storage
         self.search_results = []  # List of search result dicts
@@ -57,6 +59,10 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self.SetSize((1400, 900))
         self.SetMinSize((1200, 800))
         self.CenterOnParent()
+
+        # Focus search input and allow ESC to close
+        self.name_input.SetFocus()
+        self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
 
     def _create_ui(self):
         """Create the user interface"""
@@ -188,7 +194,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         return panel
 
     def _create_preview_panel(self, parent):
-        """Create preview panel with tabs"""
+        """Create preview panel with tabs using WebView for SVG display"""
         panel = wx.Panel(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
@@ -199,21 +205,21 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Notebook for tabs
         self.preview_notebook = wx.Notebook(panel)
 
-        # Symbol preview tab
+        # Symbol preview tab - WebView
         symbol_panel = wx.Panel(self.preview_notebook)
         symbol_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.symbol_preview = wx.StaticBitmap(symbol_panel, size=(400, 400))
-        self.symbol_preview.SetMinSize((400, 400))
-        symbol_sizer.Add(self.symbol_preview, 1, wx.ALIGN_CENTER | wx.ALL, 10)
+        self.symbol_webview = wx.html2.WebView.New(symbol_panel)
+        self.symbol_webview.SetMinSize((400, 400))
+        symbol_sizer.Add(self.symbol_webview, 1, wx.EXPAND | wx.ALL, 5)
         symbol_panel.SetSizer(symbol_sizer)
         self.preview_notebook.AddPage(symbol_panel, "Symbol")
 
-        # Footprint preview tab
+        # Footprint preview tab - WebView
         footprint_panel = wx.Panel(self.preview_notebook)
         footprint_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.footprint_preview = wx.StaticBitmap(footprint_panel, size=(400, 400))
-        self.footprint_preview.SetMinSize((400, 400))
-        footprint_sizer.Add(self.footprint_preview, 1, wx.ALIGN_CENTER | wx.ALL, 10)
+        self.footprint_webview = wx.html2.WebView.New(footprint_panel)
+        self.footprint_webview.SetMinSize((400, 400))
+        footprint_sizer.Add(self.footprint_webview, 1, wx.EXPAND | wx.ALL, 5)
         footprint_panel.SetSizer(footprint_sizer)
         self.preview_notebook.AddPage(footprint_panel, "Footprint")
 
@@ -224,7 +230,6 @@ class LCSCManagerSearchDialog(wx.Dialog):
             specs_panel,
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2 | wx.TE_WORDWRAP
         )
-        # Set monospace font for better alignment
         font = wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         self.specs_text.SetFont(font)
         specs_sizer.Add(self.specs_text, 1, wx.EXPAND | wx.ALL, 10)
@@ -233,8 +238,78 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
         sizer.Add(self.preview_notebook, 1, wx.EXPAND | wx.ALL, 5)
 
+        # Initialize with empty content
+        self._set_webview_svg(self.symbol_webview, None, "Select a component")
+        self._set_webview_svg(self.footprint_webview, None, "Select a component")
+
         panel.SetSizer(sizer)
         return panel
+
+    def _fit_svg_viewbox(self, svg_content: str, bbox: Optional[Dict] = None) -> str:
+        """Adjust SVG viewBox to fit content tightly using bbox data"""
+        import re
+
+        if bbox:
+            x = bbox.get("x", 0)
+            y = bbox.get("y", 0)
+            w = bbox.get("width", 100)
+            h = bbox.get("height", 100)
+            # Add 10% padding
+            pad_x = w * 0.1
+            pad_y = h * 0.1
+            new_viewbox = f"{x - pad_x} {y - pad_y} {w + pad_x * 2} {h + pad_y * 2}"
+            # Replace or add viewBox
+            if re.search(r'viewBox="[^"]*"', svg_content):
+                svg_content = re.sub(r'viewBox="[^"]*"', f'viewBox="{new_viewbox}"', svg_content)
+            else:
+                svg_content = svg_content.replace('<svg ', f'<svg viewBox="{new_viewbox}" ', 1)
+
+        return svg_content
+
+    def _strip_svg_size(self, svg_content: str) -> str:
+        """Remove width/height attributes from SVG so viewBox controls aspect ratio and CSS controls size"""
+        import re
+        # Remove width="..." and height="..." from the opening <svg> tag
+        svg_content = re.sub(r'(<svg\b[^>]*?)\s+width="[^"]*"', r'\1', svg_content)
+        svg_content = re.sub(r'(<svg\b[^>]*?)\s+height="[^"]*"', r'\1', svg_content)
+        return svg_content
+
+    def _svg_to_html(self, svg_content: Optional[str], placeholder_msg: str = "") -> str:
+        """Wrap SVG content in HTML for WebView display"""
+        if svg_content:
+            body = self._strip_svg_size(svg_content)
+        else:
+            body = f'<p style="color:#999;font-size:14px;">{placeholder_msg}</p>'
+
+        return f'''<!DOCTYPE html>
+<html><head><style>
+  html, body {{
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    background: #fff; overflow: hidden;
+    font-family: -apple-system, sans-serif;
+  }}
+  svg {{
+    max-width: 95%; max-height: 95%;
+    width: 95%; height: auto;
+  }}
+</style></head>
+<body>{body}</body></html>'''
+
+    def _set_webview_svg(self, webview, svg_content: Optional[str],
+                         placeholder_msg: str = "", bbox: Optional[Dict] = None):
+        """Set SVG content on a WebView widget, fitting viewBox to bbox if provided"""
+        if svg_content and bbox:
+            svg_content = self._fit_svg_viewbox(svg_content, bbox)
+        html = self._svg_to_html(svg_content, placeholder_msg)
+        webview.SetPage(html, "")
+
+    def _on_char_hook(self, event):
+        """Handle key events before child widgets - ESC closes dialog"""
+        if event.GetKeyCode() == wx.WXK_ESCAPE:
+            self.EndModal(wx.ID_CANCEL)
+        else:
+            event.Skip()
 
     def _create_import_options_panel(self):
         """Create import options panel"""
@@ -430,8 +505,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         current_thread_id = self.preview_thread_id
 
         # Show loading placeholder immediately
-        loading_bitmap = self.kicad_renderer._create_placeholder("Loading...")
-        self._display_previews(loading_bitmap, loading_bitmap, "Loading component information...")
+        self._display_previews(None, None, "Loading component information...",
+                               placeholder_msg="Loading...")
 
         # Load previews in background thread
         thread = threading.Thread(
@@ -446,102 +521,124 @@ class LCSCManagerSearchDialog(wx.Dialog):
         """Handle double-click - import directly"""
         self._on_import(event)
 
-    def _load_previews_async(self, result, thread_id):
-        """Load and display previews for selected component (runs in background thread)"""
+    def _fetch_easyeda_svgs(self, lcsc_id: str) -> Optional[List]:
+        """Fetch pre-rendered SVGs from EasyEDA API (cached)"""
+        if lcsc_id in self._svg_cache:
+            return self._svg_cache[lcsc_id]
+
         try:
-            # Get LCSC ID (stored as 'uuid' in search results)
+            url = self.EASYEDA_SVG_URL.format(lcsc_id=lcsc_id)
+            response = requests.get(url, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                              'AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+            })
+            response.raise_for_status()
+            data = response.json()
+
+            if not data.get("success"):
+                self._svg_cache[lcsc_id] = None
+                return None
+
+            result = data.get("result", [])
+            self._svg_cache[lcsc_id] = result
+            return result
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch EasyEDA SVGs: {e}")
+            self._svg_cache[lcsc_id] = None
+            return None
+
+    def _load_previews_async(self, result, thread_id):
+        """Load SVG previews and component data independently (runs in background thread)"""
+        try:
             lcsc_id = result.get("uuid") or result.get("lcsc", {}).get("number")
             if not lcsc_id:
                 logger.warning("No LCSC ID in result")
                 return
 
-            # Check if this request is still valid
             if thread_id != self.preview_thread_id:
-                logger.debug(f"Preview request {thread_id} cancelled (current: {self.preview_thread_id})")
                 return
 
-            # Check cache
+            # Check cache - show immediately if available
             if lcsc_id in self.preview_cache:
                 cached = self.preview_cache[lcsc_id]
-                # Update UI in main thread
                 if thread_id == self.preview_thread_id:
                     wx.CallAfter(
                         self._display_previews,
-                        cached['symbol'],
-                        cached['footprint'],
-                        cached.get('specs', '')
+                        cached.get('symbol_svg'),
+                        cached.get('footprint_svg'),
+                        cached.get('specs', ''),
+                        symbol_bbox=cached.get('symbol_bbox'),
+                        footprint_bbox=cached.get('footprint_bbox')
                     )
                 return
 
-            # Fetch complete component data using LCSC ID
+            # Step 1: Fetch SVGs (fast) and display immediately
+            svgs = self._fetch_easyeda_svgs(lcsc_id)
+
+            if thread_id != self.preview_thread_id:
+                return
+
+            symbol_svg = None
+            footprint_svg = None
+            symbol_bbox = None
+            footprint_bbox = None
+            if svgs:
+                for entry in svgs:
+                    if entry.get("docType") == 2:
+                        symbol_svg = entry.get("svg")
+                        symbol_bbox = entry.get("bbox")
+                    elif entry.get("docType") == 4:
+                        footprint_svg = entry.get("svg")
+                        footprint_bbox = entry.get("bbox")
+
+            # Show SVG previews right away (before waiting for component data)
+            symbol_msg = "" if symbol_svg else ("Not available in EasyEDA" if not svgs else "No symbol preview")
+            footprint_msg = "" if footprint_svg else ("Not available in EasyEDA" if not svgs else "No footprint preview")
+
+            if thread_id == self.preview_thread_id:
+                wx.CallAfter(
+                    self._display_previews,
+                    symbol_svg, footprint_svg, "Loading specifications...",
+                    placeholder_msg=symbol_msg,
+                    footprint_placeholder=footprint_msg,
+                    symbol_bbox=symbol_bbox,
+                    footprint_bbox=footprint_bbox
+                )
+
+            # Step 2: Fetch component data (slow - involves rate-limited API calls)
             component_data = self.api_client.search_component(lcsc_id)
 
-            # Check if still valid
             if thread_id != self.preview_thread_id:
-                logger.debug(f"Preview request {thread_id} cancelled after fetch")
                 return
 
-            if not component_data:
-                logger.warning(f"Failed to fetch component data for {lcsc_id}")
-                # Show placeholder for components not in EasyEDA
-                symbol_bitmap = self.kicad_renderer._create_placeholder("Not available\nin EasyEDA")
-                footprint_bitmap = self.kicad_renderer._create_placeholder("Not available\nin EasyEDA")
+            specs_text = self._format_specifications(component_data) if component_data else ""
+            if not svgs and not component_data:
                 specs_text = f"Component {lcsc_id} not found in EasyEDA database."
-                if thread_id == self.preview_thread_id:
-                    wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap, specs_text)
-                return
 
-            # Extract EasyEDA data from component
-            easyeda_data = component_data.get("easyeda_data")
-            if not easyeda_data:
-                logger.warning(f"No EasyEDA data for {lcsc_id}")
-                # Show placeholder for components without EasyEDA data
-                symbol_bitmap = self.kicad_renderer._create_placeholder("No preview data")
-                footprint_bitmap = self.kicad_renderer._create_placeholder("No preview data")
-                # Still show basic specs even without EasyEDA data
-                specs_text = self._format_specifications(component_data)
-                if thread_id == self.preview_thread_id:
-                    wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap, specs_text)
-                return
-
-            # Check if still valid before rendering (rendering is slow)
-            if thread_id != self.preview_thread_id:
-                logger.debug(f"Preview request {thread_id} cancelled before rendering")
-                return
-
-            # Render previews using KiCad native rendering
-            symbol_bitmap = self.kicad_renderer.render_symbol(easyeda_data, component_data)
-            footprint_bitmap = self.kicad_renderer.render_footprint(easyeda_data, component_data)
-
-            # Format specifications
-            specs_text = self._format_specifications(component_data)
-
-            logger.debug(f"Rendered previews - Symbol: {symbol_bitmap is not None}, Footprint: {footprint_bitmap is not None}")
-
-            # Check if still valid after rendering
-            if thread_id != self.preview_thread_id:
-                logger.debug(f"Preview request {thread_id} cancelled after rendering")
-                return
-
-            # Cache
+            # Cache everything
             self.preview_cache[lcsc_id] = {
-                'symbol': symbol_bitmap,
-                'footprint': footprint_bitmap,
+                'symbol_svg': symbol_svg,
+                'footprint_svg': footprint_svg,
+                'symbol_bbox': symbol_bbox,
+                'footprint_bbox': footprint_bbox,
                 'specs': specs_text,
-                'easyeda_data': easyeda_data,
                 'component_data': component_data
             }
 
-            # Display in main thread
-            wx.CallAfter(self._display_previews, symbol_bitmap, footprint_bitmap, specs_text)
+            # Update specs (SVGs already displayed)
+            if thread_id == self.preview_thread_id:
+                wx.CallAfter(self._update_specs, specs_text)
 
         except Exception as e:
             logger.error(f"Failed to load previews: {e}", exc_info=True)
-            # Show error placeholder
-            error_bitmap = self.kicad_renderer._create_placeholder("Load failed")
             error_text = f"Failed to load component information:\n\n{str(e)}"
             if thread_id == self.preview_thread_id:
-                wx.CallAfter(self._display_previews, error_bitmap, error_bitmap, error_text)
+                wx.CallAfter(
+                    self._display_previews, None, None, error_text,
+                    placeholder_msg="Load failed"
+                )
 
     def _format_specifications(self, component_data: Dict[str, Any]) -> str:
         """Format component data as detailed specifications text"""
@@ -636,28 +733,27 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
         return "\n".join(specs)
 
-    def _display_previews(self, symbol_bitmap, footprint_bitmap, specs_text=None):
-        """Display preview bitmaps and specifications"""
-        if symbol_bitmap:
-            logger.debug(f"Setting symbol bitmap: {symbol_bitmap.GetSize()}, valid={symbol_bitmap.IsOk()}")
-            self.symbol_preview.SetBitmap(symbol_bitmap)
-            self.symbol_preview.SetMinSize(symbol_bitmap.GetSize())
-            self.symbol_preview.Refresh()
-        if footprint_bitmap:
-            logger.debug(f"Setting footprint bitmap: {footprint_bitmap.GetSize()}, valid={footprint_bitmap.IsOk()}")
-            self.footprint_preview.SetBitmap(footprint_bitmap)
-            self.footprint_preview.SetMinSize(footprint_bitmap.GetSize())
-            self.footprint_preview.Refresh()
+    def _display_previews(self, symbol_svg, footprint_svg, specs_text=None,
+                          placeholder_msg="", footprint_placeholder="",
+                          symbol_bbox=None, footprint_bbox=None):
+        """Display SVG previews and specifications"""
+        fp_msg = footprint_placeholder or placeholder_msg
+        self._set_webview_svg(self.symbol_webview, symbol_svg, placeholder_msg, bbox=symbol_bbox)
+        self._set_webview_svg(self.footprint_webview, footprint_svg, fp_msg, bbox=footprint_bbox)
+
         if specs_text is not None:
             self.specs_text.SetValue(specs_text)
 
-        # Force layout update
         self.preview_notebook.Layout()
         self.Layout()
         self.Refresh()
 
+    def _update_specs(self, specs_text: str):
+        """Update only the specifications text (called when component data finishes loading)"""
+        self.specs_text.SetValue(specs_text)
+
     def _on_import(self, event):
-        """Handle import button click"""
+        """Handle import button click - runs fetch+import in background thread"""
         if not self.selected_component:
             wx.MessageBox(
                 "Please select a component from the search results.",
@@ -666,7 +762,6 @@ class LCSCManagerSearchDialog(wx.Dialog):
             )
             return
 
-        # Get import options
         import_symbol = self.import_symbol_cb.GetValue()
         import_footprint = self.import_footprint_cb.GetValue()
         import_3d = self.import_3d_cb.GetValue()
@@ -679,103 +774,99 @@ class LCSCManagerSearchDialog(wx.Dialog):
             )
             return
 
-        try:
-            # Get LCSC ID
-            lcsc_id = self.selected_component.get("uuid") or self.selected_component.get("lcsc", {}).get("number")
-
-            if not lcsc_id:
-                wx.MessageBox(
-                    "No LCSC ID found for selected component.",
-                    "Import Error",
-                    wx.OK | wx.ICON_ERROR
-                )
-                return
-
-            # Check if we have cached data
-            if lcsc_id in self.preview_cache:
-                easyeda_data = self.preview_cache[lcsc_id]['easyeda_data']
-                component_info = self.preview_cache[lcsc_id]['component_data']
-            else:
-                # Fetch complete component data
-                wx.BeginBusyCursor()
-                component_info = self.api_client.search_component(lcsc_id)
-                wx.EndBusyCursor()
-
-                if not component_info:
-                    wx.MessageBox(
-                        "Failed to fetch component data.",
-                        "Import Error",
-                        wx.OK | wx.ICON_ERROR
-                    )
-                    return
-
-                easyeda_data = component_info.get("easyeda_data")
-                if not easyeda_data:
-                    wx.MessageBox(
-                        "No EasyEDA data available for this component.",
-                        "Import Error",
-                        wx.OK | wx.ICON_ERROR
-                    )
-                    return
-
-            # Show progress dialog
-            progress = wx.ProgressDialog(
-                "Importing Component",
-                "Importing component files...",
-                maximum=100,
-                parent=self,
-                style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
-            )
-
-            try:
-                # Import component
-                result = self.library_manager.import_component(
-                    easyeda_data=easyeda_data,
-                    component_info=component_info,
-                    import_symbol=import_symbol,
-                    import_footprint=import_footprint,
-                    import_3d=import_3d
-                )
-
-                progress.Update(100)
-                progress.Destroy()
-
-                # Show success message
-                success_msg = "Component imported successfully!\n\n"
-                if result.get("symbol"):
-                    success_msg += f"✓ Symbol\n"
-                if result.get("footprint"):
-                    success_msg += f"✓ Footprint\n"
-                if result.get("model_3d"):
-                    success_msg += f"✓ 3D Model\n"
-
-                # Add reload notification
-                notifications = result.get("notifications", [])
-                if notifications:
-                    success_msg += "\n" + "\n".join(notifications)
-                success_msg += (
-                    "\n\nNote: Please close and reopen the schematic editor "
-                    "for imported symbols to appear in the library."
-                )
-
-                wx.MessageBox(
-                    success_msg,
-                    "Import Successful",
-                    wx.OK | wx.ICON_INFORMATION
-                )
-
-                # Close dialog
-                self.EndModal(wx.ID_OK)
-
-            except Exception as e:
-                progress.Destroy()
-                raise
-
-        except Exception as e:
-            wx.EndBusyCursor()
-            logger.error(f"Import failed: {e}", exc_info=True)
+        lcsc_id = self.selected_component.get("uuid") or self.selected_component.get("lcsc", {}).get("number")
+        if not lcsc_id:
             wx.MessageBox(
-                f"Import failed: {str(e)}",
+                "No LCSC ID found for selected component.",
                 "Import Error",
                 wx.OK | wx.ICON_ERROR
             )
+            return
+
+        # Show progress dialog
+        self._import_progress = wx.GenericProgressDialog(
+            "Importing Component",
+            f"Fetching component data for {lcsc_id}...\n\n\n\n",
+            maximum=100,
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_CAN_ABORT
+        )
+        self._import_progress.SetSize((400, -1))
+
+        # Run import in background thread
+        thread = threading.Thread(
+            target=self._import_async,
+            args=(lcsc_id, import_symbol, import_footprint, import_3d),
+            daemon=True
+        )
+        thread.start()
+
+    def _import_async(self, lcsc_id, import_symbol, import_footprint, import_3d):
+        """Fetch component data and import in background thread"""
+        try:
+            # Get component data from cache or fetch
+            component_info = None
+            if lcsc_id in self.preview_cache:
+                component_info = self.preview_cache[lcsc_id].get('component_data')
+
+            if not component_info:
+                component_info = self.api_client.search_component(lcsc_id)
+
+            if not component_info:
+                wx.CallAfter(self._import_finish,
+                             False, "Failed to fetch component data.")
+                return
+
+            easyeda_data = component_info.get("easyeda_data")
+            if not easyeda_data:
+                wx.CallAfter(self._import_finish,
+                             False, "No EasyEDA data available for this component.")
+                return
+
+            wx.CallAfter(self._import_progress_update, 30, "Importing component files...")
+
+            # Import component
+            result = self.library_manager.import_component(
+                easyeda_data=easyeda_data,
+                component_info=component_info,
+                import_symbol=import_symbol,
+                import_footprint=import_footprint,
+                import_3d=import_3d
+            )
+
+            # Build result message
+            lines = ["Import completed!\n"]
+            if result.get("symbol"):
+                lines.append("Symbol: OK")
+            if result.get("footprint"):
+                lines.append("Footprint: OK")
+            if result.get("model_3d"):
+                lines.append("3D Model: OK")
+
+            notifications = result.get("notifications", [])
+            if notifications:
+                lines.append("")
+                lines.extend(notifications)
+            lines.append("\nReopen schematic editor for symbols to appear.")
+
+            wx.CallAfter(self._import_finish, True, "\n".join(lines))
+
+        except Exception as e:
+            logger.error(f"Import failed: {e}", exc_info=True)
+            wx.CallAfter(self._import_finish, False, f"Import failed:\n{str(e)}")
+
+    def _import_progress_update(self, value, message):
+        """Update progress dialog (called on main thread)"""
+        if self._import_progress:
+            self._import_progress.Update(value, message)
+
+    def _import_finish(self, success, message):
+        """Show final result inside the progress dialog (called on main thread)"""
+        if self._import_progress:
+            # Update to 100% with result message, user clicks OK to dismiss
+            self._import_progress.Update(100, message)
+            self._import_progress.Destroy()
+            self._import_progress = None
+
+        if success:
+            self.EndModal(wx.ID_OK)
