@@ -4,17 +4,14 @@ A KiCad plugin that allows you to search and import electronic components from L
 
 ## ✨ Features
 
-### Advanced Component Search (v0.2.0)
+### Advanced Component Search
 - 🔍 **Multi-parameter search**: Search by component name, value, package type, and manufacturer
 - 📊 **Rich search results**: View LCSC ID, name, package, price, stock, and library type (Basic/Extended)
 - 🔀 **Sortable columns**: Click column headers to sort results by any field
-- 👁️ **High-quality previews**:
-  - Symbol preview using KiCad's native rendering
-  - Footprint preview using KiCad's native rendering
-  - 5x supersampling for crisp, clear images
-- ⚡ **Asynchronous loading**: Non-blocking UI for smooth navigation
+- 👁️ **High-quality previews**: Symbol and footprint previews rendered directly from EasyEDA's SVG API
+- ⚡ **Fully asynchronous**: Previews load independently — browse and import without waiting
 - 💾 **Preview caching**: Better performance with cached previews
-- ⌨️ **Enter key support**: Quick search with Enter key
+- ⌨️ **Keyboard support**: Enter to search, ESC to close
 
 ### Component Import
 - 📦 Automatically download symbols, footprints, and 3D models (WRL and STEP formats)
@@ -74,17 +71,17 @@ A KiCad plugin that allows you to search and import electronic components from L
 
    **macOS**:
    ```bash
-   /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 -m pip install --user requests pydantic Pillow cairosvg
+   /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 -m pip install --user requests pydantic
    ```
 
    **Windows** (PowerShell):
    ```powershell
-   & "C:\Program Files\KiCad\9.0\bin\python.exe" -m pip install --user requests pydantic Pillow cairosvg
+   & "C:\Program Files\KiCad\9.0\bin\python.exe" -m pip install --user requests pydantic
    ```
 
    **Linux**:
    ```bash
-   pip3 install --user requests pydantic Pillow cairosvg
+   pip3 install --user requests pydantic
    ```
 
 4. **Restart KiCad completely**
@@ -122,9 +119,9 @@ A KiCad plugin that allows you to search and import electronic components from L
    - Select a component to view previews
 
 5. **Review previews**:
-   - **Symbol tab**: High-quality symbol preview rendered by KiCad
-   - **Footprint tab**: High-quality footprint preview rendered by KiCad
-   - Previews load asynchronously - you can continue browsing while loading
+   - **Symbol tab**: Symbol preview from EasyEDA
+   - **Footprint tab**: Footprint preview from EasyEDA
+   - Previews load asynchronously - you can browse and import while loading
 
 ### Import Components
 
@@ -173,8 +170,6 @@ Alternatively, manually remove:
 - **Python packages**:
   - `requests>=2.31.0` - For API calls
   - `pydantic>=2.5.0` - For data validation
-  - `Pillow>=10.0.0` - For image processing
-  - `cairosvg>=2.7.0` - For SVG to PNG conversion
 - **Internet connection**: Required for downloading components from LCSC/JLCPCB
 
 ## Development
@@ -265,11 +260,7 @@ This plugin is primarily developed and tested with KiCad 9.0. It may work with K
 
 ### The previews are not showing. What should I do?
 
-Make sure you have installed all Python dependencies, especially:
-- `Pillow` - For image processing
-- `cairosvg` - For SVG to PNG conversion
-
-Also ensure that KiCad CLI is available at the standard location (`kicad-cli` command).
+Previews are fetched directly from EasyEDA's SVG API and displayed in a WebView. Make sure you have an internet connection. If a component has no preview data on EasyEDA, a placeholder message will be shown.
 
 ### Can I search for components without LCSC part numbers?
 
