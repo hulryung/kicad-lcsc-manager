@@ -37,17 +37,20 @@ layer_correspondance = {
     "1": "F.Cu",
     "2": "B.Cu",
     "3": "F.SilkS",
-    "4": "B.Silks",
+    "4": "B.SilkS",
     "5": "F.Paste",
     "6": "B.Paste",
     "7": "F.Mask",
     "8": "B.Mask",
     "10": "Edge.Cuts",
-    "11": "",  # EasyEDA "Multilayer"
+    "11": "F.Cu",  # EasyEDA "Multilayer" → map to F.Cu (pads handle this separately)
     "12": "F.Fab",
-    "99": "",  # EasyEDA "Component shape layer"
-    "100": "",  # EasyEDA "Pin soldering layer"
-    "101": "",  # EasyEDA "Component marking layer"
+    "13": "B.Fab",
+    "14": "F.CrtYd",
+    "15": "B.CrtYd",
+    "99": "User.1",  # EasyEDA "Component shape layer"
+    "100": "User.2",  # EasyEDA "Pin soldering layer"
+    "101": "User.3",  # EasyEDA "Component marking layer"
 }
 
 
@@ -231,7 +234,11 @@ def h_ARC(data, kicad_mod, footprint_info):
     """
 
     width = data[0]
-    layer = layer_correspondance[data[1]]
+    try:
+        layer = layer_correspondance[data[1]]
+    except KeyError:
+        logging.warning(f"footprint h_ARC: layer correspondance not found for layer {data[1]}")
+        layer = "F.SilkS"
     svg_path = data[3]
 
     # Parse SVG path
@@ -438,7 +445,14 @@ def svg_arc_to_points(x1, y1, rx, ry, rotation, large_arc_flag, sweep_flag, x2, 
 
 
 def h_SOLIDREGION(data, kicad_mod, footprint_info):
-    layer = "Edge.Cuts" if data[3] == "npth" else layer_correspondance[data[0]]
+    if data[3] == "npth":
+        layer = "Edge.Cuts"
+    else:
+        try:
+            layer = layer_correspondance[data[0]]
+        except KeyError:
+            logging.warning(f"footprint h_SOLIDREGION: layer correspondance not found for layer {data[0]}")
+            layer = "F.Cu"
 
     path = data[2]
     points = []
@@ -556,13 +570,19 @@ def h_RECT(data, kicad_mod, footprint_info):
     end = [Xstart + Xdelta, Ystart + Ydelta]
     width = mil2mm(data[7])
 
+    try:
+        layer = layer_correspondance[data[4]]
+    except KeyError:
+        logging.warning(f"footprint h_RECT: layer correspondance not found for layer {data[4]}")
+        layer = "F.SilkS"
+
     if width == 0:
         # filled:
         kicad_mod.append(
             RectFill(
                 start=start,
                 end=end,
-                layer=layer_correspondance[data[4]],
+                layer=layer,
             )
         )
     else:
@@ -572,7 +592,7 @@ def h_RECT(data, kicad_mod, footprint_info):
                 start=start,
                 end=end,
                 width=width,
-                layer=layer_correspondance[data[4]],
+                layer=layer,
             )
         )
 

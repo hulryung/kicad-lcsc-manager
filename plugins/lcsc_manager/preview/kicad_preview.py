@@ -212,107 +212,173 @@ class KiCadPreviewRenderer:
         """
         Convert SVG file to wx.Bitmap with high quality
 
+        Tries renderers in order:
+        1. wx.svg.SVGimage (built-in, no extra deps)
+        2. cairosvg (if installed)
+        3. Placeholder with error message
+
         Args:
             svg_path: Path to SVG file
-            scale: Scale factor for higher resolution (default 5.0 for very crisp display)
+            scale: Scale factor for higher resolution
             is_footprint: If True, apply additional zoom for footprints
 
         Returns:
             wx.Bitmap
         """
+        # Try wx.svg first (available in wxPython 4.1+, bundled with KiCad)
         try:
-            # Use cairosvg to convert SVG to PNG at high resolution
-            try:
-                import cairosvg
-                import xml.etree.ElementTree as ET
-                from PIL import ImageFilter, ImageEnhance
-
-                # Parse SVG to get viewBox for intelligent scaling
-                tree = ET.parse(svg_path)
-                root = tree.getroot()
-                viewbox = root.get('viewBox')
-
-                # Calculate appropriate scale based on SVG dimensions
-                if viewbox and is_footprint:
-                    # For footprints, apply extra zoom
-                    parts = viewbox.split()
-                    if len(parts) == 4:
-                        svg_width = float(parts[2])
-                        svg_height = float(parts[3])
-                        # If footprint is very large (large PCB coordinates), zoom in more
-                        max_dim = max(svg_width, svg_height)
-                        if max_dim > 1000:
-                            # Large SVG coordinates, need more zoom
-                            scale = scale * 2.0
-                        self.logger.debug(f"Footprint SVG size: {svg_width}x{svg_height}, scale: {scale}")
-
-                # Convert to higher resolution for better quality
-                output_width = int(self.IMAGE_SIZE[0] * scale)
-                output_height = int(self.IMAGE_SIZE[1] * scale)
-
-                png_data = cairosvg.svg2png(
-                    url=str(svg_path),
-                    output_width=output_width,
-                    output_height=output_height
-                )
-                pil_image = Image.open(io.BytesIO(png_data))
-
-                # Crop to content (remove excess whitespace) for footprints
-                if is_footprint:
-                    # Convert to grayscale to find content bounds
-                    bbox = pil_image.convert('L').getbbox()
-                    if bbox:
-                        # Add small margin
-                        margin = int(20 * scale)
-                        bbox = (
-                            max(0, bbox[0] - margin),
-                            max(0, bbox[1] - margin),
-                            min(pil_image.width, bbox[2] + margin),
-                            min(pil_image.height, bbox[3] + margin)
-                        )
-                        pil_image = pil_image.crop(bbox)
-                        self.logger.debug(f"Cropped footprint to: {pil_image.size}")
-
-                # Scale to fit display size with high quality
-                pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
-
-                # Apply sharpening for crisp edges
-                pil_image = pil_image.filter(ImageFilter.SHARPEN)
-
-                # Slightly increase contrast for better visibility
-                enhancer = ImageEnhance.Contrast(pil_image)
-                pil_image = enhancer.enhance(1.1)
-
-            except ImportError:
-                self.logger.warning("cairosvg not available, using PIL SVG fallback")
-                # Try PIL directly (limited SVG support)
-                pil_image = Image.open(svg_path)
-                # Resize to fit preview size
-                pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
-
-            # Handle RGBA images
-            if pil_image.mode == 'RGBA':
-                # Create white background
-                bg = Image.new('RGB', pil_image.size, self.BACKGROUND_COLOR)
-                bg.paste(pil_image, mask=pil_image.split()[3])  # Alpha channel as mask
-                pil_image = bg
-            elif pil_image.mode != 'RGB':
-                pil_image = pil_image.convert('RGB')
-
-            # Center on white background
-            final_image = Image.new('RGB', self.IMAGE_SIZE, self.BACKGROUND_COLOR)
-            offset = (
-                (self.IMAGE_SIZE[0] - pil_image.size[0]) // 2,
-                (self.IMAGE_SIZE[1] - pil_image.size[1]) // 2
-            )
-            final_image.paste(pil_image, offset)
-
-            # Convert to wx.Bitmap
-            return self._pil_to_wx_bitmap(final_image)
-
+            return self._svg_to_bitmap_wx(svg_path, is_footprint)
         except Exception as e:
-            self.logger.error(f"SVG conversion failed: {e}", exc_info=True)
-            return self._create_placeholder("Image conversion failed")
+            self.logger.debug(f"wx.svg rendering failed: {e}")
+
+        # Try cairosvg
+        try:
+            return self._svg_to_bitmap_cairosvg(svg_path, scale, is_footprint)
+        except ImportError:
+            self.logger.debug("cairosvg not available")
+        except Exception as e:
+            self.logger.debug(f"cairosvg rendering failed: {e}")
+
+        self.logger.error("All SVG renderers failed")
+        return self._create_placeholder("SVG rendering failed")
+
+    def _svg_to_bitmap_wx(self, svg_path: Path, is_footprint: bool = False) -> wx.Bitmap:
+        """
+        Convert SVG to wx.Bitmap using wx.svg.SVGimage (built-in).
+
+        Handles alpha channel by compositing onto white background.
+
+        Raises:
+            Exception: If rendering fails
+        """
+        from wx.svg import SVGimage
+
+        svg_img = SVGimage.CreateFromFile(str(svg_path))
+        if svg_img.width <= 0 or svg_img.height <= 0:
+            raise RuntimeError("SVGimage failed to load SVG")
+
+        # Render at high resolution then scale down for quality
+        render_width = int(self.IMAGE_SIZE[0] * 2)
+        render_height = int(self.IMAGE_SIZE[1] * 2)
+
+        bmp = svg_img.ConvertToScaledBitmap(wx.Size(render_width, render_height))
+
+        # Convert to PIL, handling alpha channel
+        wx_img = bmp.ConvertToImage()
+        width, height = wx_img.GetWidth(), wx_img.GetHeight()
+        rgb_data = bytes(wx_img.GetData())
+
+        if wx_img.HasAlpha():
+            # SVG renders with transparency - composite onto white
+            alpha_data = bytes(wx_img.GetAlpha())
+            pil_rgb = Image.frombytes('RGB', (width, height), rgb_data)
+            pil_alpha = Image.frombytes('L', (width, height), alpha_data)
+            pil_rgba = pil_rgb.copy()
+            pil_rgba.putalpha(pil_alpha)
+            pil_image = Image.new('RGB', (width, height), self.BACKGROUND_COLOR)
+            pil_image.paste(pil_rgba, mask=pil_alpha)
+            self.logger.debug(f"SVG rendered with alpha: {width}x{height}")
+        else:
+            pil_image = Image.frombytes('RGB', (width, height), rgb_data)
+            self.logger.debug(f"SVG rendered without alpha: {width}x{height}")
+
+        # Crop to content (remove whitespace around the drawing)
+        bbox = pil_image.convert('L').point(lambda x: 0 if x > 250 else 255).getbbox()
+        if bbox:
+            margin = 20
+            bbox = (
+                max(0, bbox[0] - margin),
+                max(0, bbox[1] - margin),
+                min(pil_image.width, bbox[2] + margin),
+                min(pil_image.height, bbox[3] + margin)
+            )
+            pil_image = pil_image.crop(bbox)
+
+        # Scale to fit display size
+        pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
+
+        # Center on white background
+        final_image = Image.new('RGB', self.IMAGE_SIZE, self.BACKGROUND_COLOR)
+        offset = (
+            (self.IMAGE_SIZE[0] - pil_image.size[0]) // 2,
+            (self.IMAGE_SIZE[1] - pil_image.size[1]) // 2
+        )
+        final_image.paste(pil_image, offset)
+
+        return self._pil_to_wx_bitmap(final_image)
+
+    def _svg_to_bitmap_cairosvg(self, svg_path: Path, scale: float = 5.0, is_footprint: bool = False) -> wx.Bitmap:
+        """
+        Convert SVG to wx.Bitmap using cairosvg.
+
+        Raises:
+            ImportError: If cairosvg is not installed
+            Exception: If rendering fails
+        """
+        import cairosvg
+        import xml.etree.ElementTree as ET
+        from PIL import ImageFilter, ImageEnhance
+
+        # Parse SVG to get viewBox for intelligent scaling
+        tree = ET.parse(svg_path)
+        root = tree.getroot()
+        viewbox = root.get('viewBox')
+
+        if viewbox and is_footprint:
+            parts = viewbox.split()
+            if len(parts) == 4:
+                svg_width = float(parts[2])
+                svg_height = float(parts[3])
+                max_dim = max(svg_width, svg_height)
+                if max_dim > 1000:
+                    scale = scale * 2.0
+                self.logger.debug(f"Footprint SVG size: {svg_width}x{svg_height}, scale: {scale}")
+
+        output_width = int(self.IMAGE_SIZE[0] * scale)
+        output_height = int(self.IMAGE_SIZE[1] * scale)
+
+        png_data = cairosvg.svg2png(
+            url=str(svg_path),
+            output_width=output_width,
+            output_height=output_height
+        )
+        pil_image = Image.open(io.BytesIO(png_data))
+
+        # Crop to content for footprints
+        if is_footprint:
+            bbox = pil_image.convert('L').getbbox()
+            if bbox:
+                margin = int(20 * scale)
+                bbox = (
+                    max(0, bbox[0] - margin),
+                    max(0, bbox[1] - margin),
+                    min(pil_image.width, bbox[2] + margin),
+                    min(pil_image.height, bbox[3] + margin)
+                )
+                pil_image = pil_image.crop(bbox)
+
+        pil_image.thumbnail(self.IMAGE_SIZE, Image.Resampling.LANCZOS)
+        pil_image = pil_image.filter(ImageFilter.SHARPEN)
+        enhancer = ImageEnhance.Contrast(pil_image)
+        pil_image = enhancer.enhance(1.1)
+
+        # Handle RGBA
+        if pil_image.mode == 'RGBA':
+            bg = Image.new('RGB', pil_image.size, self.BACKGROUND_COLOR)
+            bg.paste(pil_image, mask=pil_image.split()[3])
+            pil_image = bg
+        elif pil_image.mode != 'RGB':
+            pil_image = pil_image.convert('RGB')
+
+        # Center on white background
+        final_image = Image.new('RGB', self.IMAGE_SIZE, self.BACKGROUND_COLOR)
+        offset = (
+            (self.IMAGE_SIZE[0] - pil_image.size[0]) // 2,
+            (self.IMAGE_SIZE[1] - pil_image.size[1]) // 2
+        )
+        final_image.paste(pil_image, offset)
+
+        return self._pil_to_wx_bitmap(final_image)
 
     def _create_placeholder(self, message: str) -> wx.Bitmap:
         """Create a placeholder image with message"""
