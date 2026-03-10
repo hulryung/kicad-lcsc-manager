@@ -52,15 +52,15 @@ A KiCad plugin that allows you to search and import electronic components from L
 
    - **Windows**:
      ```
-     C:\Users\[USERNAME]\Documents\KiCad\9.0\scripting\plugins\
+     C:\Users\[USERNAME]\Documents\KiCad\9.0\3rdparty\plugins\
      ```
    - **macOS**:
      ```
-     ~/Documents/KiCad/9.0/scripting/plugins/
+     ~/Documents/KiCad/9.0/3rdparty/plugins/
      ```
    - **Linux**:
      ```
-     ~/.local/share/kicad/9.0/scripting/plugins/
+     ~/.local/share/kicad/9.0/3rdparty/plugins/
      ```
 
 3. **Install Python dependencies** ⚠️ **REQUIRED**
@@ -159,7 +159,7 @@ The script will:
 - Optionally remove configuration and logs
 
 Alternatively, manually remove:
-- Plugin: `~/Documents/KiCad/9.0/scripting/plugins/lcsc_manager/`
+- Plugin: `~/Documents/KiCad/9.0/3rdparty/plugins/com_github_hulryung_kicad-lcsc-manager/`
 - Config/Logs: `~/.kicad/lcsc_manager/`
 
 ## 📋 Requirements
@@ -193,9 +193,15 @@ python -m pytest tests/
 ```
 kicad-lcsc-manager/
 ├── plugins/lcsc_manager/    # Main plugin code
-├── tests/                   # Unit tests
-├── requirements.txt         # Python dependencies
-└── README.md               # This file
+│   ├── api/                 # LCSC/EasyEDA API client
+│   ├── converters/          # Symbol, footprint, 3D model converters
+│   ├── library/             # KiCad library management
+│   ├── preview/             # Preview rendering
+│   └── utils/               # Config, logging utilities
+├── scripts/                 # Build and packaging scripts
+├── tests/                   # Integration tests
+├── .github/workflows/       # CI/CD (auto-release on tag)
+└── README.md
 ```
 
 ## Related Projects
@@ -256,7 +262,7 @@ However, you can still easily install this plugin via:
 
 ### Does this work with KiCad 7 or 8?
 
-This plugin is primarily developed and tested with KiCad 9.0. It may work with KiCad 7.0+ but is not officially tested or supported. Some features (especially preview rendering) require KiCad 9.0.
+This plugin is primarily developed and tested with KiCad 9.0. It may work with KiCad 7.0+ but is not officially tested or supported.
 
 ### The previews are not showing. What should I do?
 
@@ -264,7 +270,7 @@ Previews are fetched directly from EasyEDA's SVG API and displayed in a WebView.
 
 ### Can I search for components without LCSC part numbers?
 
-Yes! Version 0.2.0 introduced advanced search. You can search by:
+Yes! You can search by:
 - Component name (e.g., "RP2040", "ATmega328")
 - Component value (e.g., "10uF", "100k")
 - Package type (e.g., "0603", "SOT23", "LQFN")
