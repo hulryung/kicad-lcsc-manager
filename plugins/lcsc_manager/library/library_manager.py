@@ -4,7 +4,7 @@ Library Manager - Manage KiCad project libraries
 This module handles adding components to KiCad project libraries
 and managing library configuration
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 import re
 from ..utils.logger import get_logger
@@ -14,6 +14,12 @@ from ..converters.footprint_converter import FootprintConverter
 from ..converters.model_3d_converter import Model3DConverter
 
 logger = get_logger()
+
+try:
+    import pcbnew
+    HAS_PCBNEW = True
+except ImportError:
+    HAS_PCBNEW = False
 
 
 class LibraryManager:
@@ -115,7 +121,8 @@ class LibraryManager:
                     results["errors"].append(error_msg)
 
             # Update library tables
-            self._update_library_tables()
+            notifications = self._update_library_tables()
+            results["notifications"] = notifications
 
             results["success"] = (
                 (not import_symbol or results["symbol"] is not None) and
@@ -239,27 +246,51 @@ class LibraryManager:
 
         return models
 
-    def _update_library_tables(self):
+    def _update_library_tables(self) -> List[str]:
         """
         Update KiCad library tables to include imported libraries
 
-        This ensures KiCad can find the imported components
+        This ensures KiCad can find the imported components.
+        Uses pcbnew API for footprint library (in-memory update),
+        and file-based approach for symbol library.
+
+        Returns:
+            List of user notification messages (e.g., reload instructions)
         """
         self.logger.info("Updating library tables")
+        notifications = []
 
         try:
-            # Update symbol library table
-            self._update_symbol_lib_table()
+            # Update symbol library table (file-based, eeschema manages this)
+            sym_notif = self._update_symbol_lib_table()
+            if sym_notif:
+                notifications.append(sym_notif)
 
-            # Update footprint library table
-            self._update_footprint_lib_table()
+            # Update footprint library table (try pcbnew API first)
+            fp_notif = self._update_footprint_lib_table()
+            if fp_notif:
+                notifications.append(fp_notif)
 
         except Exception as e:
             self.logger.error(f"Failed to update library tables: {e}")
-            # Non-fatal error - user can manually add libraries
+            notifications.append(
+                "Failed to update library tables. "
+                "Please add libraries manually via Preferences > Manage Libraries."
+            )
 
-    def _update_symbol_lib_table(self):
-        """Update sym-lib-table file"""
+        return notifications
+
+    def _update_symbol_lib_table(self) -> Optional[str]:
+        """
+        Update sym-lib-table file.
+
+        Since this plugin runs in pcbnew, we cannot update the symbol library
+        table in eeschema's memory. We write to disk and notify the user
+        to reload libraries in the schematic editor.
+
+        Returns:
+            Notification message if user action is needed, None otherwise
+        """
         lib_table_path = self.project_path.parent / "sym-lib-table"
 
         lib_name = self.config.get("symbol_lib_nickname")
@@ -274,21 +305,20 @@ class LibraryManager:
                 # Check if our library is already registered
                 if lib_name in content:
                     self.logger.info("Symbol library already registered")
-                    return
+                    return None
 
-                # Add library entry
-                # Remove closing parenthesis
+                # Add library entry before closing parenthesis
                 content = content.rstrip().rstrip(')')
 
-                # Add new library entry
                 entry = f'''  (lib (name "{lib_name}")(type "KiCad")(uri "{lib_path}")(options "")(descr "LCSC imported components"))
 )
 '''
                 content = content + '\n' + entry
 
             else:
-                # Create new library table
+                # Create new library table with version tag
                 content = f'''(sym_lib_table
+  (version 7)
   (lib (name "{lib_name}")(type "KiCad")(uri "{lib_path}")(options "")(descr "LCSC imported components"))
 )
 '''
@@ -298,51 +328,115 @@ class LibraryManager:
                 f.write(content)
 
             self.logger.info(f"Symbol library table updated: {lib_table_path}")
+            return None
 
         except Exception as e:
             self.logger.error(f"Failed to update symbol library table: {e}")
+            return f"Failed to register symbol library: {e}"
 
-    def _update_footprint_lib_table(self):
-        """Update fp-lib-table file"""
+    def _update_footprint_lib_table(self) -> Optional[str]:
+        """
+        Update fp-lib-table using pcbnew API (in-memory) with file-based fallback.
+
+        Returns:
+            Notification message if user action is needed, None otherwise
+        """
+        lib_name = self.config.get("footprint_lib_nickname")
+        lib_uri = "${KIPRJMOD}/libs/lcsc/footprints.pretty"
+
+        # Try pcbnew API first (updates in-memory, immediately available)
+        if HAS_PCBNEW:
+            try:
+                registered = self._register_fp_lib_via_pcbnew(lib_name, lib_uri)
+                if registered:
+                    self.logger.info("Footprint library registered via pcbnew API")
+                    return None
+                else:
+                    self.logger.info("Footprint library already registered in pcbnew")
+                    return None
+            except Exception as e:
+                self.logger.warning(f"pcbnew API registration failed, falling back to file: {e}")
+
+        # Fallback: file-based approach
+        return self._update_footprint_lib_table_file(lib_name, lib_uri)
+
+    def _register_fp_lib_via_pcbnew(self, lib_name: str, lib_uri: str) -> bool:
+        """
+        Register footprint library using pcbnew API (in-memory update).
+
+        Args:
+            lib_name: Library nickname
+            lib_uri: Library URI path
+
+        Returns:
+            True if newly registered, False if already existed
+
+        Raises:
+            Exception: If pcbnew API call fails
+        """
+        board = pcbnew.GetBoard()
+        if not board:
+            raise RuntimeError("No board loaded")
+
+        fp_lib_table = board.GetProject().PcbFootprintLibs()
+
+        # Check if already registered
+        if fp_lib_table.HasLibrary(lib_name):
+            return False
+
+        # Create new library table row
+        row = pcbnew.FP_LIB_TABLE_ROW(lib_name, lib_uri, "KiCad", "")
+        row.SetDescr("LCSC imported footprints")
+        fp_lib_table.InsertRow(row)
+
+        # Save to disk so it persists across sessions
+        lib_table_path = self.project_path.parent / "fp-lib-table"
+        fp_lib_table.Save(str(lib_table_path))
+
+        self.logger.info(f"Footprint library registered via pcbnew API: {lib_name}")
+        return True
+
+    def _update_footprint_lib_table_file(self, lib_name: str, lib_uri: str) -> Optional[str]:
+        """
+        Update fp-lib-table file directly (fallback when pcbnew API unavailable).
+
+        Returns:
+            Notification message if user action is needed, None otherwise
+        """
         lib_table_path = self.project_path.parent / "fp-lib-table"
 
-        lib_name = self.config.get("footprint_lib_nickname")
-        lib_path = "${KIPRJMOD}/libs/lcsc/footprints.pretty"
-
         try:
-            # Check if library table exists
             if lib_table_path.exists():
                 with open(lib_table_path, 'r', encoding='utf-8') as f:
                     content = f.read()
 
-                # Check if our library is already registered
                 if lib_name in content:
                     self.logger.info("Footprint library already registered")
-                    return
+                    return None
 
-                # Add library entry
                 content = content.rstrip().rstrip(')')
 
-                entry = f'''  (lib (name "{lib_name}")(type "KiCad")(uri "{lib_path}")(options "")(descr "LCSC imported footprints"))
+                entry = f'''  (lib (name "{lib_name}")(type "KiCad")(uri "{lib_uri}")(options "")(descr "LCSC imported footprints"))
 )
 '''
                 content = content + '\n' + entry
 
             else:
-                # Create new library table
                 content = f'''(fp_lib_table
-  (lib (name "{lib_name}")(type "KiCad")(uri "{lib_path}")(options "")(descr "LCSC imported footprints"))
+  (version 7)
+  (lib (name "{lib_name}")(type "KiCad")(uri "{lib_uri}")(options "")(descr "LCSC imported footprints"))
 )
 '''
 
-            # Write library table
             with open(lib_table_path, 'w', encoding='utf-8') as f:
                 f.write(content)
 
-            self.logger.info(f"Footprint library table updated: {lib_table_path}")
+            self.logger.info(f"Footprint library table file updated: {lib_table_path}")
+            return None
 
         except Exception as e:
             self.logger.error(f"Failed to update footprint library table: {e}")
+            return f"Failed to register footprint library: {e}"
 
     def get_library_info(self) -> Dict[str, Any]:
         """

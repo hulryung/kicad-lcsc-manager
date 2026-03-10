@@ -513,6 +513,16 @@ class LCSCManagerDialog(wx.Dialog):
                     for error in results["errors"]:
                         message_parts.append(f"  - {error}")
 
+                # Add reload notification
+                notifications = results.get("notifications", [])
+                if notifications:
+                    message_parts.append("")
+                    message_parts.extend(notifications)
+                message_parts.append(
+                    "\nNote: Please close and reopen the schematic editor "
+                    "for imported symbols to appear in the library."
+                )
+
                 wx.MessageBox(
                     "\n".join(message_parts),
                     "Import Successful",

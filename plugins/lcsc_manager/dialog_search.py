@@ -749,6 +749,15 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 if result.get("model_3d"):
                     success_msg += f"✓ 3D Model\n"
 
+                # Add reload notification
+                notifications = result.get("notifications", [])
+                if notifications:
+                    success_msg += "\n" + "\n".join(notifications)
+                success_msg += (
+                    "\n\nNote: Please close and reopen the schematic editor "
+                    "for imported symbols to appear in the library."
+                )
+
                 wx.MessageBox(
                     success_msg,
                     "Import Successful",
