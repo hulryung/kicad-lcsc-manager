@@ -113,7 +113,32 @@ def test_solid_region_ignores_lowercase_commands():
     print("test_solid_region_ignores_lowercase_commands: PASS")
 
 
+from lcsc_manager.converters.jlc2kicad.footprint_handlers import _normalize_pad_number
+
+
+def test_pad_number_bare_number():
+    assert _normalize_pad_number("1") == "1"
+    assert _normalize_pad_number("A12") == "A12"
+    print("test_pad_number_bare_number: PASS")
+
+
+def test_pad_number_parenthesized():
+    assert _normalize_pad_number("A(1)") == "1"
+    assert _normalize_pad_number("VCC(3)") == "3"
+    assert _normalize_pad_number("GND ( 42 )") == "42"
+    print("test_pad_number_parenthesized: PASS")
+
+
+def test_pad_number_empty():
+    assert _normalize_pad_number("") == ""
+    assert _normalize_pad_number(None) == ""
+    print("test_pad_number_empty: PASS")
+
+
 if __name__ == "__main__":
     test_solid_region_handles_h_v_commands()
     test_solid_region_ignores_lowercase_commands()
+    test_pad_number_bare_number()
+    test_pad_number_parenthesized()
+    test_pad_number_empty()
     print("\nFootprint handler patch tests passed.")

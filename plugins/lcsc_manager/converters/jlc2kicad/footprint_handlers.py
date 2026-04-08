@@ -58,6 +58,30 @@ def mil2mm(data):
     return float(data) / 3.937
 
 
+def _normalize_pad_number(raw: str) -> str:
+    """
+    Canonicalize EasyEDA pad numbers.
+
+    EasyEDA sometimes encodes pads as ``NAME(NUMBER)`` (e.g. ``"A(1)"``,
+    ``"VCC(3)"``). KiCad expects the bare number, so return the part inside
+    the parentheses if present. Otherwise return the stripped original.
+    Empty/None -> "".
+
+    Ported from easyeda2kicad.py v1.0.1 export_kicad_footprint.py.
+    """
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    if "(" in s and ")" in s:
+        try:
+            inside = s.split("(", 1)[1].rsplit(")", 1)[0].strip()
+            if inside:
+                return inside
+        except IndexError:
+            pass
+    return s
+
+
 def h_TRACK(data, kicad_mod, footprint_info):
     """
     Append a line to the footprint
@@ -130,7 +154,7 @@ def h_PAD(data, kicad_mod, footprint_info):
     at = [mil2mm(data[1]), mil2mm(data[2])]
     size = [mil2mm(data[3]), mil2mm(data[4])]
     layer = data[5]
-    pad_number = data[6]
+    pad_number = _normalize_pad_number(data[6])
 
     drill_diameter = float(mil2mm(data[8])) * 2
     drill_size = drill_diameter
