@@ -16,8 +16,13 @@ lib_path = os.path.join(os.path.dirname(__file__), "lib")
 if os.path.exists(lib_path) and lib_path not in sys.path:
     sys.path.insert(0, lib_path)
 
-# Register the plugin with KiCad
-from .plugin import LCSCManagerPlugin
+# Register the plugin with KiCad.
+# Guarded so unit tests can import submodules outside of KiCad's Python
+# (which lacks pcbnew/wx). No effect when running inside KiCad.
+try:
+    from .plugin import LCSCManagerPlugin
 
-if __name__ != "__main__":
-    LCSCManagerPlugin().register()
+    if __name__ != "__main__":
+        LCSCManagerPlugin().register()
+except ImportError:
+    pass
