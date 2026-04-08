@@ -24,6 +24,45 @@ def mil2mm(data):
     return float(data) / 3.937
 
 
+def _extract_pin_number(line: str) -> str:
+    """
+    Extract the canonical KiCad pin number from an EasyEDA PIN line.
+
+    EasyEDA encodes two pin number fields:
+    - ``settings.spice_pin_number`` (segment 0, field 2) — used for SPICE sim
+    - ``num.number`` (segment 4, field 4) — the canonical KiCad display number
+
+    For single-unit symbols these usually agree; for multi-unit symbols
+    (gates, op-amps, drivers) they differ. Returns the num-segment number
+    when available, falling back to spice_pin_number otherwise.
+
+    Line format (from upstream easyeda2kicad docs):
+        P~settings^^dot^^path^^name^^num^^dot_bis^^clock
+        settings: visibility~type~spice_pin_number~pos_x~pos_y~rotation~id~is_locked
+        num:      show~x~y~rotation~number~text_anchor~font~font_size
+
+    Ported from easyeda2kicad.py v1.0.1 easyeda_importer.add_easyeda_pin.
+    """
+    if not line:
+        return ""
+
+    # Strip leading "P~" if present so segment 0 = settings, not the designator.
+    body = line[2:] if line.startswith("P~") else line
+    segments = [seg.split("~") for seg in body.split("^^")]
+
+    # Preferred: num segment (index 4), field "number" (index 4).
+    if len(segments) > 4 and len(segments[4]) > 4:
+        num = segments[4][4].strip()
+        if num:
+            return num
+
+    # Fallback: settings.spice_pin_number (segment 0, field 2).
+    if len(segments) > 0 and len(segments[0]) > 2:
+        return segments[0][2].strip()
+
+    return ""
+
+
 def h_R(data, translation, kicad_symbol):
     """
     Rectangle handler
@@ -90,7 +129,7 @@ def h_E(data, translation, kicad_symbol):
       )"""
 
 
-def h_P(data, translation, kicad_symbol):
+def h_P(data, translation, kicad_symbol, raw_line: str = ""):
     """
     Add Pin to the symbol
     data = [
@@ -136,7 +175,9 @@ def h_P(data, translation, kicad_symbol):
     else:
         electrical_type = "unspecified"
 
-    pin_number = data[2]
+    # Prefer canonical num-segment number (segment 4, field 4) from raw_line;
+    # fall back to data[2] (spice_pin_number) if raw_line not provided.
+    pin_number = _extract_pin_number(raw_line) if raw_line else data[2]
     pin_name = data[13]
 
     x1 = round(mil2mm(float(data[3]) - translation[0]), 3)

@@ -126,11 +126,21 @@ class SymbolConverter:
 
             if model in symbol_handlers.handlers:
                 try:
-                    symbol_handlers.handlers[model](
-                        data=args[1:],
-                        translation=translation,
-                        kicad_symbol=kicad_symbol
-                    )
+                    if model == "P":
+                        # h_P needs the raw line to extract multi-unit pin numbers
+                        # from the ^^-delimited num segment.
+                        symbol_handlers.handlers[model](
+                            data=args[1:],
+                            translation=translation,
+                            kicad_symbol=kicad_symbol,
+                            raw_line=line,
+                        )
+                    else:
+                        symbol_handlers.handlers[model](
+                            data=args[1:],
+                            translation=translation,
+                            kicad_symbol=kicad_symbol,
+                        )
                 except Exception as e:
                     self.logger.warning(f"Failed to parse shape element {model}: {e}")
             else:
