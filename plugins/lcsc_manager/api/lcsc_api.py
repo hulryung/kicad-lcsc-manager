@@ -24,14 +24,27 @@ def _discover_ca_bundle() -> Optional[str]:
 
     Adapted from easyeda2kicad.py v1.0.1 _create_ssl_context.
     """
-    # macOS: KiCad bundles its own certifi inside KiCad.app
+    # macOS: KiCad bundles its own certifi inside KiCad.app.
+    # The glob may return several hits per install (e.g. Versions/Current and
+    # Versions/3.9 for the same KiCad.app); the is_file() loop takes the first
+    # valid match. We sort by mtime rather than name because lexicographic
+    # sort treats "KiCad/" (U+002F) as greater than "KiCad 10/" (U+0020),
+    # which would silently pick the older install on machines with multiple
+    # KiCad versions.
     if sys.platform == "darwin":
+        def _mtime(path: str) -> float:
+            try:
+                return Path(path).stat().st_mtime
+            except OSError:
+                return 0.0
+
         candidates = sorted(
             glob.glob(
                 "/Applications/KiCad*/KiCad.app/Contents/Frameworks/"
                 "Python.framework/Versions/*/lib/python*/site-packages/certifi/cacert.pem"
             ),
-            reverse=True,  # newest KiCad first
+            key=_mtime,
+            reverse=True,  # newest KiCad first (by mtime)
         )
         for path in candidates:
             if Path(path).is_file():
@@ -53,6 +66,11 @@ def _discover_ca_bundle() -> Optional[str]:
 
 # Module-level cache: discover the bundle once per process.
 # Empty string ("") means "discovered but none found" — avoids re-running the glob.
+#
+# Thread safety: _get_session may be called from dialog_search.py background
+# threads. The `if _CA_BUNDLE is None: _CA_BUNDLE = ...` pattern is GIL-safe
+# under CPython — in the worst case, two threads race and both assign the same
+# value (harmless duplicate glob work). Intentional: no lock needed.
 _CA_BUNDLE: Optional[str] = None
 
 
