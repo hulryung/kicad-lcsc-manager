@@ -2,6 +2,19 @@
 
 A KiCad plugin that allows you to search and import electronic components from LCSC/EasyEDA and JLCPCB directly into your KiCad projects, including symbols, footprints, and 3D models.
 
+> **🚀 v0.3.0 — Upstream integration (2026-04-08)**: This release incorporates significant conversion-logic fixes **ported directly from [easyeda2kicad.py v1.0.1](https://github.com/uPesy/easyeda2kicad.py)** by [uPesy](https://github.com/uPesy). Highlights:
+>
+> - **Footprint layer mapping fixed** — 7 previously-miswired EasyEDA layers (TopAssembly/BottomAssembly/LIBBODY/etc.) now land on the correct KiCad layers instead of the wrong side of the board or the User.1/2/3 junk drawer.
+> - **Multi-unit symbol pin numbers** — gates, dual op-amps, and multi-channel drivers now get the canonical KiCad pin number from the `^^num` segment instead of the wrong `spice_pin_number`.
+> - **3D model placement** — models are XY-centered, Z bottom-aligned, and positioned at the EasyEDA `c_origin` offset (with correct Y negation and canvas-unit scaling).
+> - **Plated vias** — `h_VIA` now emits real `thru_hole` pads with `*.Cu *.Paste *.Mask`, matching upstream. Previously vias were silently dropped.
+> - **Footprint SVG path parser** — `H` and `V` commands are now handled (rectangular silkscreen outlines no longer truncate).
+> - **Pad number normalization** — `"VCC(3)"` → `"3"` for BGA/connector parts.
+> - **macOS KiCad SSL** — auto-detects KiCad's bundled `certifi` so HTTPS calls don't fail in KiCad's embedded Python.
+> - **Opt-in disk cache** for EasyEDA component JSON (off by default).
+>
+> See [CHANGELOG.md](CHANGELOG.md) and the **[Credits](#credits)** section for full attribution.
+
 ## ✨ Features
 
 ### Advanced Component Search
@@ -230,14 +243,36 @@ BOM (Bill of Materials) extension tool that automatically fetches LCSC component
 
 ## Credits
 
-This plugin is inspired by and references:
-- [easyeda2kicad.py](https://github.com/uPesy/easyeda2kicad.py) - CLI tool for converting LCSC components
-- [easyeda2kicad_plugin](https://github.com/rasmushauschild/easyeda2kicad_plugin) - KiCad plugin wrapper
-- [KiCAD-EasyEDA-Parts](https://github.com/Yanndroid/KiCAD-EasyEDA-Parts) - Alternative implementation
+### Code ported from easyeda2kicad.py v1.0.1
+
+Starting with **v0.3.0**, this plugin incorporates conversion logic **directly ported** from the upstream project **[easyeda2kicad.py v1.0.1](https://github.com/uPesy/easyeda2kicad.py)** by [uPesy](https://github.com/uPesy) (AGPL-3.0). Every ported function carries a `"Ported from easyeda2kicad.py v1.0.1 <module>"` docstring for full traceability.
+
+**What was ported:**
+
+| Upstream source | Ported into |
+|---|---|
+| `kicad/export_kicad_3d_model.py` — `_get_obj_bbox`, `get_materials`, `get_vertices`, `generate_wrl_model` | `plugins/lcsc_manager/converters/model_3d_converter.py` — 3D model centering, Z bottom alignment, Rec.601 luminance, EE placement offset |
+| `easyeda/easyeda_importer.py` — `Easyeda3dModelImporter.parse_3d_model_info` | `model_3d_converter.py::_extract_3d_model_info` — extracts `uuid`, `c_origin`, `z`, `c_rotation` from SVGNODE |
+| `kicad/parameters_kicad_footprint.py` — `KI_LAYERS` table | `converters/jlc2kicad/footprint_handlers.py::layer_correspondance` — correct mapping for all 17 EasyEDA layers |
+| `kicad/export_kicad_footprint.py` — `_SOLID_REGION_LAYERS`, `_parse_solid_region_path` | `footprint_handlers.py::_SOLID_REGION_LAYERS` filter + `h_SOLIDREGION` M/L/H/V/A/Z parser |
+| `kicad/export_kicad_footprint.py` — pad number normalization | `footprint_handlers.py::_normalize_pad_number` |
+| `kicad/parameters_kicad_footprint.py` — `KI_VIA` template | `footprint_handlers.py::h_VIA` — plated THT emission |
+| `easyeda/easyeda_importer.py` — `add_easyeda_pin` | `converters/jlc2kicad/symbol_handlers.py::_extract_pin_number` — canonical multi-unit pin number |
+| `easyeda/easyeda_api.py` — `_create_ssl_context` | `api/lcsc_api.py::_discover_ca_bundle` — macOS KiCad certifi fallback |
+| `easyeda/easyeda_api.py` — `_get_cache_path`/`_read_from_cache`/`_write_to_cache` | `api/lcsc_api.py::_cache_path/_cache_read/_cache_write` — opt-in disk cache |
+
+### Other related projects
+
+This plugin was originally structured using concepts and base handler code from:
+- [JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib) — base jlc2kicad handler structure (MIT)
+- [easyeda2kicad_plugin](https://github.com/rasmushauschild/easyeda2kicad_plugin) — KiCad plugin wrapper
+- [KiCAD-EasyEDA-Parts](https://github.com/Yanndroid/KiCAD-EasyEDA-Parts) — alternative implementation
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License — see `LICENSE` file for the plugin wrapper code.
+
+**License note:** Portions of the conversion logic are ported from [easyeda2kicad.py](https://github.com/uPesy/easyeda2kicad.py), which is licensed under **AGPL-3.0**. Each ported function is marked with a docstring attribution. Users redistributing this plugin should review both the MIT license of the plugin wrapper and the AGPL-3.0 license of the upstream easyeda2kicad.py project.
 
 ## ❓ FAQ
 
