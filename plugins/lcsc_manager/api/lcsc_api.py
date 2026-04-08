@@ -4,6 +4,8 @@ LCSC/EasyEDA API Client
 This module provides functions to search and fetch component data from LCSC/EasyEDA.
 Note: These APIs are not officially documented and were reverse-engineered.
 """
+import glob
+import sys
 import requests
 import time
 from typing import Dict, List, Optional, Any
@@ -12,6 +14,46 @@ from ..utils.logger import get_logger
 from ..utils.config import get_config
 
 logger = get_logger()
+
+
+def _discover_ca_bundle() -> Optional[str]:
+    """
+    Find a CA bundle path for requests.Session.verify, with preference for
+    KiCad's embedded certifi on macOS. Falls back to the certifi package, then
+    None (system store).
+
+    Adapted from easyeda2kicad.py v1.0.1 _create_ssl_context.
+    """
+    # macOS: KiCad bundles its own certifi inside KiCad.app
+    if sys.platform == "darwin":
+        candidates = sorted(
+            glob.glob(
+                "/Applications/KiCad*/KiCad.app/Contents/Frameworks/"
+                "Python.framework/Versions/*/lib/python*/site-packages/certifi/cacert.pem"
+            ),
+            reverse=True,  # newest KiCad first
+        )
+        for path in candidates:
+            if Path(path).is_file():
+                logger.debug(f"Using KiCad certifi bundle: {path}")
+                return path
+
+    # Fallback: certifi package if installed
+    try:
+        import certifi
+        bundle = certifi.where()
+        if Path(bundle).is_file():
+            logger.debug(f"Using certifi package bundle: {bundle}")
+            return bundle
+    except ImportError:
+        pass
+
+    return None
+
+
+# Module-level cache: discover the bundle once per process.
+# Empty string ("") means "discovered but none found" — avoids re-running the glob.
+_CA_BUNDLE: Optional[str] = None
 
 
 class LCSCAPIError(Exception):
@@ -40,6 +82,13 @@ class LCSCAPIClient:
     def _get_session(self):
         """Get a fresh session with proper headers for each request"""
         session = requests.Session()
+        # Apply CA bundle for SSL verification (KiCad-embedded certifi on macOS,
+        # then certifi package, then system default). Discovered once per process.
+        global _CA_BUNDLE
+        if _CA_BUNDLE is None:
+            _CA_BUNDLE = _discover_ca_bundle() or ""
+        if _CA_BUNDLE:
+            session.verify = _CA_BUNDLE
         # Use realistic browser headers to avoid API blocking
         session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
