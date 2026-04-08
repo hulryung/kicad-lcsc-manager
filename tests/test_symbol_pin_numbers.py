@@ -51,8 +51,25 @@ def test_fallback_to_spice():
     print("test_fallback_to_spice: PASS")
 
 
+def test_whitespace_num_falls_back_to_spice():
+    """num-segment number field is whitespace — should fall back to spice."""
+    line = (
+        "P~1~0~9~-10~0~0~gge9~0"        # spice_pin_number = 9
+        "^^30~-10"                       # dot
+        "^^M 5 -10 L 30 -10~#000"        # path
+        "^^1~32~-10~0~A~start~~7"        # name
+        "^^1~25~-10~0~   ~end~~7"        # num — number field is whitespace only
+        "^^0~40~-10"                     # dot_bis
+        "^^0~"                           # clock
+    )
+    result = _extract_pin_number(line)
+    assert result == "9", f"expected '9' (fallback to spice), got {result!r}"
+    print("test_whitespace_num_falls_back_to_spice: PASS")
+
+
 if __name__ == "__main__":
     test_single_unit_pin()
     test_multi_unit_pin_mismatch()
     test_fallback_to_spice()
+    test_whitespace_num_falls_back_to_spice()
     print("\nSymbol pin number tests passed.")

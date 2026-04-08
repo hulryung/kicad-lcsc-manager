@@ -135,7 +135,7 @@ def h_P(data, translation, kicad_symbol, raw_line: str = ""):
     data = [
     0  :
     1  : electrical type
-    2  : pin number
+    2  : spice_pin_number (legacy; canonical KiCad number comes from _extract_pin_number)
     3  : x1
     4  : y1
     5  : rotation
@@ -175,8 +175,9 @@ def h_P(data, translation, kicad_symbol, raw_line: str = ""):
     else:
         electrical_type = "unspecified"
 
-    # Prefer canonical num-segment number (segment 4, field 4) from raw_line;
-    # fall back to data[2] (spice_pin_number) if raw_line not provided.
+    # Use _extract_pin_number (canonical num segment → internal fallback to
+    # spice_pin_number) when raw_line is available from the dispatcher.
+    # data[2] is the legacy fallback for callers that don't pass raw_line.
     pin_number = _extract_pin_number(raw_line) if raw_line else data[2]
     pin_name = data[13]
 
