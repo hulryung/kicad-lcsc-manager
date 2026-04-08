@@ -581,12 +581,13 @@ def h_SVGNODE(data, kicad_mod, footprint_info):
 
 def h_VIA(data, kicad_mod, footprint_info):
     """
-    Convert an EasyEDA via into a KiCad NPTH pad.
+    Convert an EasyEDA via into a KiCad plated through-hole (THT) pad.
 
-    Most EasyEDA vias in footprints are heat-dissipation vias or connection
-    points that need physical holes in the board. KiCad does not support
-    'via' objects inside .kicad_mod; we emit them as non-plated through
-    holes to preserve the physical presence.
+    EasyEDA vias are plated barrels that connect copper layers (carrying
+    nets, providing thermal relief, tying to ground planes). KiCad does
+    not support 'via' objects inside .kicad_mod, so we emit them as THT
+    pads with *.Cu *.Paste *.Mask layer coverage — matching upstream
+    easyeda2kicad v1.0.1 KI_VIA template.
 
     EasyEDA VIA serialization: VIA~x~y~diameter~net~radius~id~...
     data : [
@@ -604,11 +605,15 @@ def h_VIA(data, kicad_mod, footprint_info):
         # data[2] is the full outer diameter (not radius), so no * 2 needed
         size = float(mil2mm(data[2]))
         # data[4] is the drill hole radius; double it to get drill diameter
-        drill = (
-            float(mil2mm(data[4])) * 2
-            if len(data) > 4 and data[4]
-            else size / 2
-        )
+        if len(data) > 4 and data[4]:
+            drill = float(mil2mm(data[4])) * 2
+        else:
+            # Missing drill field — assume drill equals outer diameter
+            # (matches h_HOLE's fallback convention).
+            drill = size
+            logging.debug(
+                f"h_VIA: drill field missing, falling back to size={size}"
+            )
 
         footprint_info.max_X = max(footprint_info.max_X, at[0])
         footprint_info.min_X = min(footprint_info.min_X, at[0])
@@ -618,13 +623,13 @@ def h_VIA(data, kicad_mod, footprint_info):
         kicad_mod.append(
             Pad(
                 number="",
-                type=Pad.TYPE_NPTH,
+                type=Pad.TYPE_THT,
                 shape=Pad.SHAPE_CIRCLE,
                 at=at,
                 size=size,
                 rotation=0,
                 drill=drill,
-                layers=Pad.LAYERS_NPTH,
+                layers=Pad.LAYERS_THT,
             )
         )
     except (ValueError, IndexError) as e:

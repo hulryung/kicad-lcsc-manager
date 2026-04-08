@@ -22,7 +22,7 @@ if "KicadModTree" not in sys.modules:
     km.Pad.SHAPE_RECT = "rect"
     km.Pad.SHAPE_CIRCLE = "circle"
     km.Pad.SHAPE_CUSTOM = "custom"
-    km.Pad.LAYERS_THT = ["*.Cu", "*.Mask"]
+    km.Pad.LAYERS_THT = ["*.Cu", "*.Paste", "*.Mask"]
     km.Pad.LAYERS_SMT = ["F.Cu", "F.Mask", "F.Paste"]
     km.Pad.LAYERS_NPTH = ["*.Cu", "*.Mask"]
     # Polygon needs nodes accessible
@@ -148,12 +148,10 @@ def test_pad_number_nested_parens():
     print("test_pad_number_nested_parens: PASS")
 
 
-def test_via_becomes_npth_pad():
-    """h_VIA should emit an NPTH Pad, not just warn."""
-    # VIA format: x=0, y=0, diameter=40 mils, net="gnd", radius=15 mils
-    # diameter=40 mils -> size = 40/3.937 mm
-    # radius=15 mils  -> drill = 15*2/3.937 = 30/3.937 mm
-    data = ["0", "0", "40", "gnd", "15", "via_id"]
+def test_via_becomes_thru_hole_pad():
+    """h_VIA should emit a plated THT Pad (not NPTH) and update the bbox."""
+    # Position (20, 30) mils, diameter=40, drill_radius=15.
+    data = ["20", "30", "40", "gnd", "15", "via_id"]
     mod = FakeKicadMod()
     info = FakeFootprintInfo()
 
@@ -162,17 +160,24 @@ def test_via_becomes_npth_pad():
     assert len(mod.appended) == 1, f"expected 1 pad, got {len(mod.appended)}"
     pad = mod.appended[0]
     kw = pad._kw
-    assert kw.get("type") == fh.Pad.TYPE_NPTH, f"type wrong: {kw.get('type')}"
+    assert kw.get("type") == fh.Pad.TYPE_THT, \
+        f"expected TYPE_THT (plated), got {kw.get('type')}"
     assert kw.get("shape") == fh.Pad.SHAPE_CIRCLE, f"shape wrong: {kw.get('shape')}"
-    # size = diameter (40 mils) converted to mm = 40/3.937 ≈ 1.016 mm
+    assert kw.get("layers") == fh.Pad.LAYERS_THT, \
+        f"expected LAYERS_THT, got {kw.get('layers')}"
     size = kw.get("size")
     assert size is not None and size > 0, f"size wrong: {size}"
-    assert abs(size - (40 / 3.937)) < 0.01, f"size out of range: {size}"
-    # drill = radius (15 mils) * 2 converted to mm = 30/3.937 ≈ 0.762 mm
+    assert abs(size - 40 / 3.937) < 0.01, f"size expected ~40/3.937, got {size}"
     drill = kw.get("drill")
     assert drill is not None and drill > 0, f"drill wrong: {drill}"
-    assert abs(drill - (30 / 3.937)) < 0.01, f"drill out of range: {drill}"
-    print("test_via_becomes_npth_pad: PASS")
+    assert abs(drill - 30 / 3.937) < 0.01, f"drill expected ~30/3.937, got {drill}"
+
+    # Bounding box should have expanded to include via center at (20,30) mils = ~(5.08, 7.62) mm
+    expected_x = 20 / 3.937
+    expected_y = 30 / 3.937
+    assert abs(info.max_X - expected_x) < 0.01, f"max_X not updated: {info.max_X}"
+    assert abs(info.max_Y - expected_y) < 0.01, f"max_Y not updated: {info.max_Y}"
+    print("test_via_becomes_thru_hole_pad: PASS")
 
 
 if __name__ == "__main__":
@@ -183,5 +188,5 @@ if __name__ == "__main__":
     test_pad_number_empty()
     test_pad_number_empty_parens()
     test_pad_number_nested_parens()
-    test_via_becomes_npth_pad()
+    test_via_becomes_thru_hole_pad()
     print("\nFootprint handler patch tests passed.")
