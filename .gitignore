@@ -59,3 +59,6 @@ release/
 
 # Bundled Python dependencies
 plugins/lcsc_manager/lib/
+
+# Git worktrees
+.worktrees/
