@@ -140,12 +140,18 @@ class Model3DConverter:
 
             lcsc_id = component_info.get("lcsc_id", "unknown")
 
-            # Extract 3D model URLs from EasyEDA data
-            model_urls = self._extract_model_urls(easyeda_data)
+            # Extract full 3D model info (uuid + EE placement)
+            model_info = self._extract_3d_model_info(easyeda_data)
 
-            if not model_urls:
-                self.logger.warning("No 3D model URLs found")
+            if not model_info:
+                self.logger.warning("No 3D model info found")
                 return models
+
+            uuid = model_info["uuid"]
+            model_urls = {
+                "obj": ENDPOINT_3D_MODEL_OBJ.format(uuid=uuid),
+                "step": ENDPOINT_3D_MODEL_STEP.format(uuid=uuid),
+            }
 
             # Download OBJ file (needed for WRL conversion)
             obj_content = None
@@ -170,11 +176,16 @@ class Model3DConverter:
                 except Exception as e:
                     self.logger.warning(f"Failed to download STEP model: {e}")
 
-            # Convert OBJ to WRL
+            # Convert OBJ to WRL (with centering + EE offset)
             if obj_content:
                 wrl_path = output_dir / f"{lcsc_id}.wrl"
                 try:
-                    wrl_content = self._convert_obj_to_wrl(obj_content)
+                    wrl_content = self._convert_obj_to_wrl(
+                        obj_content=obj_content,
+                        translation_x=model_info["translation_x"],
+                        translation_y=model_info["translation_y"],
+                        translation_z=model_info["translation_z"],
+                    )
                     if wrl_content:
                         with open(wrl_path, 'w', encoding='utf-8') as f:
                             f.write(wrl_content)
@@ -252,6 +263,86 @@ class Model3DConverter:
 
         except Exception as e:
             self.logger.error(f"Error extracting 3D model UUID: {e}", exc_info=True)
+            return None
+
+    def _extract_3d_model_info(
+        self, easyeda_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Extract full 3D model metadata (uuid + translation + rotation) from SVGNODE.
+
+        EasyEDA stores the 3D model reference in the footprint shape array as:
+          SVGNODE~{"attrs":{"uuid":..., "c_origin":"x,y", "z":"...", "c_rotation":"x,y,z"}}
+
+        Translation is computed as (c_origin - canvas_origin) converted mils→mm via /3.937.
+        Returns None if SVGNODE or required attrs are missing.
+        """
+        try:
+            package_detail = easyeda_data.get("packageDetail", {})
+            data_str = package_detail.get("dataStr", {})
+            shape_array = data_str.get("shape", [])
+            head = data_str.get("head", {})
+
+            canvas_x = float(head.get("x", 0))
+            canvas_y = float(head.get("y", 0))
+
+            for line in shape_array:
+                if not isinstance(line, str):
+                    continue
+                parts = line.split("~", 1)
+                if len(parts) < 2 or parts[0] != "SVGNODE":
+                    continue
+                try:
+                    svg_data = json.loads(parts[1])
+                except json.JSONDecodeError:
+                    continue
+
+                attrs = svg_data.get("attrs", {})
+                uuid = attrs.get("uuid")
+                if not uuid:
+                    continue
+
+                # c_origin: "x,y" in mils, relative to canvas.
+                c_origin_raw = attrs.get("c_origin", "0,0")
+                try:
+                    co_x, co_y = [float(v) for v in c_origin_raw.split(",")]
+                except (ValueError, AttributeError):
+                    co_x, co_y = canvas_x, canvas_y
+
+                # Translation in mm (mils / 3.937)
+                translation_x = (co_x - canvas_x) / 3.937
+                translation_y = (co_y - canvas_y) / 3.937
+
+                try:
+                    translation_z = float(attrs.get("z", 0))
+                except (ValueError, TypeError):
+                    translation_z = 0.0
+
+                rotation_raw = attrs.get("c_rotation", "0,0,0")
+                try:
+                    rx, ry, rz = [float(v) for v in rotation_raw.split(",")]
+                except (ValueError, AttributeError):
+                    rx, ry, rz = 0.0, 0.0, 0.0
+
+                self.logger.info(
+                    f"Found 3D model: uuid={uuid} "
+                    f"translation=({translation_x:.3f},{translation_y:.3f},{translation_z:.3f}) "
+                    f"rotation=({rx},{ry},{rz})"
+                )
+
+                return {
+                    "uuid": uuid,
+                    "translation_x": translation_x,
+                    "translation_y": translation_y,
+                    "translation_z": translation_z,
+                    "rotation": (rx, ry, rz),
+                    "title": attrs.get("title", ""),
+                }
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error extracting 3D model info: {e}", exc_info=True)
             return None
 
     def _extract_model_urls(self, easyeda_data: Dict[str, Any]) -> Dict[str, str]:

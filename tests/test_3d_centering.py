@@ -107,9 +107,36 @@ def test_convert_with_ee_offset():
     print("test_convert_with_ee_offset: PASS")
 
 
+def test_extract_3d_model_info_with_translation():
+    """Should pull uuid AND translation/rotation from SVGNODE."""
+    conv = Model3DConverter()
+    easyeda_data = {
+        "packageDetail": {
+            "dataStr": {
+                "head": {"x": "4000", "y": "3000"},
+                "shape": [
+                    'SVGNODE~{"gId":"g1","attrs":{"uuid":"abc123",' +
+                    '"c_origin":"4010,3005","z":"2.5","c_rotation":"0,0,90",' +
+                    '"title":"SOT-23-3"},"layerid":"19"}',
+                ],
+            }
+        }
+    }
+    info = conv._extract_3d_model_info(easyeda_data)
+    assert info is not None, "expected dict, got None"
+    assert info["uuid"] == "abc123"
+    # c_origin(4010,3005) - canvas(4000,3000) = (10, 5) mils → /3.937 ≈ mm
+    assert abs(info["translation_x"] - (10 / 3.937)) < 1e-4
+    assert abs(info["translation_y"] - (5 / 3.937)) < 1e-4
+    assert abs(info["translation_z"] - 2.5) < 1e-4
+    assert info["rotation"] == (0.0, 0.0, 90.0)
+    print("test_extract_3d_model_info_with_translation: PASS")
+
+
 if __name__ == "__main__":
     test_obj_bbox()
     test_obj_bbox_empty()
     test_convert_centered_wrl()
     test_convert_with_ee_offset()
+    test_extract_3d_model_info_with_translation()
     print("\nAll 3D centering tests passed.")
