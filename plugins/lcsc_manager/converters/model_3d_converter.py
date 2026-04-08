@@ -506,7 +506,7 @@ class Model3DConverter:
 
     def _get_obj_bbox(
         self, obj_content: str
-    ) -> Optional[tuple]:
+    ) -> Optional[Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]]:
         """
         Compute OBJ vertex bounding box.
 
