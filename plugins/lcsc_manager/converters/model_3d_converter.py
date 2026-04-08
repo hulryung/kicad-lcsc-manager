@@ -4,7 +4,7 @@
 This module handles downloading and converting 3D models for components
 Based on easyeda2kicad implementation
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple, List
 from pathlib import Path
 import json
 import re
@@ -503,6 +503,38 @@ class Model3DConverter:
             " ".join([str(round(float(coord) / 2.54, 4)) for coord in vertex.split(" ")])
             for vertex in matches
         ]
+
+    def _get_obj_bbox(
+        self, obj_content: str
+    ) -> Optional[tuple]:
+        """
+        Compute OBJ vertex bounding box.
+
+        Returns:
+            ((x_min, x_max), (y_min, y_max), (z_min, z_max)) or None if no vertices.
+
+        Ported from easyeda2kicad.py v1.0.1 export_kicad_3d_model._get_obj_bbox.
+        """
+        x_vals, y_vals, z_vals = [], [], []
+        for line in obj_content.splitlines():
+            parts = line.split()
+            if len(parts) < 4 or parts[0] != "v":
+                continue
+            try:
+                x_vals.append(float(parts[1]))
+                y_vals.append(float(parts[2]))
+                z_vals.append(float(parts[3]))
+            except ValueError:
+                continue
+
+        if not x_vals:
+            return None
+
+        return (
+            (min(x_vals), max(x_vals)),
+            (min(y_vals), max(y_vals)),
+            (min(z_vals), max(z_vals)),
+        )
 
     def create_placeholder_model(
         self,
