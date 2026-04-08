@@ -125,12 +125,42 @@ def test_extract_3d_model_info_with_translation():
     info = conv._extract_3d_model_info(easyeda_data)
     assert info is not None, "expected dict, got None"
     assert info["uuid"] == "abc123"
-    # c_origin(4010,3005) - canvas(4000,3000) = (10, 5) mils → /3.937 ≈ mm
+    # c_origin(4010,3005) - canvas(4000,3000) = (10, 5) canvas units.
+    # X: (10) / 3.937 ≈ 2.540 mm
+    # Y: -(5) / 3.937 ≈ -1.270 mm (negated for EasyEDA screen-space → KiCad)
+    # Z: 2.5 / 3.937 ≈ 0.635 mm (canvas units, not mm)
     assert abs(info["translation_x"] - (10 / 3.937)) < 1e-4
-    assert abs(info["translation_y"] - (5 / 3.937)) < 1e-4
-    assert abs(info["translation_z"] - 2.5) < 1e-4
+    assert abs(info["translation_y"] - (-5 / 3.937)) < 1e-4
+    assert abs(info["translation_z"] - (2.5 / 3.937)) < 1e-4
     assert info["rotation"] == (0.0, 0.0, 90.0)
     print("test_extract_3d_model_info_with_translation: PASS")
+
+
+def test_extract_3d_model_info_missing_c_origin():
+    """Missing c_origin attr must produce zero translation, not a huge offset."""
+    conv = Model3DConverter()
+    easyeda_data = {
+        "packageDetail": {
+            "dataStr": {
+                "head": {"x": "4000", "y": "3000"},
+                "shape": [
+                    'SVGNODE~{"gId":"g1","attrs":{"uuid":"xyz789",'
+                    '"z":"0","c_rotation":"0,0,0","title":"NoOrigin"},'
+                    '"layerid":"19"}',
+                ],
+            }
+        }
+    }
+    info = conv._extract_3d_model_info(easyeda_data)
+    assert info is not None
+    assert info["uuid"] == "xyz789"
+    # Missing c_origin → co_x/co_y default to canvas_x/canvas_y → translation = 0
+    assert abs(info["translation_x"]) < 1e-6, \
+        f"expected 0, got {info['translation_x']}"
+    assert abs(info["translation_y"]) < 1e-6, \
+        f"expected 0, got {info['translation_y']}"
+    assert abs(info["translation_z"]) < 1e-6
+    print("test_extract_3d_model_info_missing_c_origin: PASS")
 
 
 if __name__ == "__main__":
@@ -139,4 +169,5 @@ if __name__ == "__main__":
     test_convert_centered_wrl()
     test_convert_with_ee_offset()
     test_extract_3d_model_info_with_translation()
+    test_extract_3d_model_info_missing_c_origin()
     print("\nAll 3D centering tests passed.")

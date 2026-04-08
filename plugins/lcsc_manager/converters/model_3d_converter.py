@@ -302,19 +302,26 @@ class Model3DConverter:
                 if not uuid:
                     continue
 
-                # c_origin: "x,y" in mils, relative to canvas.
-                c_origin_raw = attrs.get("c_origin", "0,0")
-                try:
-                    co_x, co_y = [float(v) for v in c_origin_raw.split(",")]
-                except (ValueError, AttributeError):
+                # c_origin: "x,y" in EasyEDA canvas units (10-mil / 0.254 mm each),
+                # relative to canvas. Upstream reference: Easyeda3dModelImporter.parse_3d_model_info
+                c_origin_raw = attrs.get("c_origin")
+                if c_origin_raw is None:
+                    # No placement info — translation stays zero (canvas_x/y cancel out)
                     co_x, co_y = canvas_x, canvas_y
+                else:
+                    try:
+                        co_x, co_y = [float(v) for v in c_origin_raw.split(",")]
+                    except (ValueError, AttributeError):
+                        co_x, co_y = canvas_x, canvas_y
 
-                # Translation in mm (mils / 3.937)
+                # Translation in mm. Y is negated to convert EasyEDA screen-space
+                # (Y-down) to KiCad board-space (Y-up). Z is in canvas units too,
+                # so it's scaled by the same factor.
                 translation_x = (co_x - canvas_x) / 3.937
-                translation_y = (co_y - canvas_y) / 3.937
+                translation_y = -(co_y - canvas_y) / 3.937
 
                 try:
-                    translation_z = float(attrs.get("z", 0))
+                    translation_z = float(attrs.get("z", 0)) / 3.937
                 except (ValueError, TypeError):
                     translation_z = 0.0
 
