@@ -35,6 +35,18 @@ if "KicadModTree" not in sys.modules:
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
+# Defensive: if an earlier test file in the same process tried to import
+# footprint_handlers without KicadModTree available, Python cached the
+# failed import as sys.modules[...] = None. Clear those sentinels so our
+# stub-backed re-import can succeed. Harmless when the cache is clean.
+for _cached in (
+    "lcsc_manager.converters.jlc2kicad.footprint_handlers",
+    "lcsc_manager.converters.jlc2kicad",
+    "lcsc_manager.converters.footprint_converter",
+):
+    if sys.modules.get(_cached) is None and _cached in sys.modules:
+        del sys.modules[_cached]
+
 # Import module directly to access internal helpers without KicadModTree state
 from lcsc_manager.converters.jlc2kicad import footprint_handlers as fh
 
@@ -234,13 +246,16 @@ def test_layer_correspondance_no_user_layers():
 
 
 def test_solid_region_layer_99_still_imported():
-    """SOLIDREGION on layer 99 (component shape) is allowed by the filter."""
+    """SOLIDREGION on layer 99 (component shape) is allowed AND goes to F.CrtYd."""
     data = ["99", "id_99", "M 0 0 L 100 0 L 100 50 L 0 50 Z", "solid"]
     mod = FakeKicadMod()
     info = FakeFootprintInfo()
     fh.h_SOLIDREGION(data, mod, info)
     assert len(mod.appended) == 1, \
         f"expected 1 polygon on layer 99, got {len(mod.appended)}"
+    poly = mod.appended[0]
+    layer = poly._kw.get("layer") if hasattr(poly, "_kw") else None
+    assert layer == "F.CrtYd", f"layer 99 should map to F.CrtYd, got {layer!r}"
     print("test_solid_region_layer_99_still_imported: PASS")
 
 

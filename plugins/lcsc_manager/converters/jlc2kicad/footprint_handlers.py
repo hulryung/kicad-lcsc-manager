@@ -55,12 +55,25 @@ layer_correspondance = {
 }
 # Ported from easyeda2kicad.py v1.0.1 parameters_kicad_footprint.py KI_LAYERS.
 
-# SOLIDREGIONs are only imported on these layers — others (5/6 paste, 100/101
-# decorative) are intentionally dropped. Ported from easyeda2kicad.py v1.0.1
+# SOLIDREGIONs are only imported on these layers — others are intentionally
+# dropped. Ported from easyeda2kicad.py v1.0.1
 # export_kicad_footprint._SOLID_REGION_LAYERS.
-# Layer 99 (ComponentShapeLayer/LIBBODY) is not visible in EasyEDA but maps to
-# F.CrtYd outline in KiCad. Layer 100 is skipped (decorative lead shapes).
-# Layer 101 is skipped (decorative pin-1 marker circles).
+#
+# Allowed layers:
+#   3, 4   — F.SilkS, B.SilkS (legitimate silkscreen fills)
+#   13, 14 — F.Fab, B.Fab (assembly drawings)
+#   99     — F.CrtYd (ComponentShapeLayer / LIBBODY — invisible in
+#            EasyEDA but maps to KiCad courtyard outlines)
+#
+# Intentional exclusions:
+#   5, 6   — paste layers (paste areas belong to pad definitions, not shapes)
+#   10     — Edge.Cuts (board outlines come from the BOARD handler, not SOLIDREGION)
+#   11     — Multi-Layer copper (copper fills belong to the pad/track system)
+#   100    — LeadShape (decorative solder pads)
+#   101    — ComponentPolarity (decorative pin-1 marker circles)
+#
+# IDs are strings here because the project parses EasyEDA JSON fields as
+# strings; upstream uses ints after dataclass conversion.
 _SOLID_REGION_LAYERS = {"3", "4", "13", "14", "99"}
 
 

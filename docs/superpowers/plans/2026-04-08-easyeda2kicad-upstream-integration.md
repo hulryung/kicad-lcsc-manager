@@ -1554,3 +1554,41 @@ after the upstream easyeda2kicad integration."
 **Interface consistency:**
 - `h_P`'s new `raw_line` param defaults to `""` so any other caller of the handler (if any) still works.
 - `_convert_obj_to_wrl` keeps old positional arg (`obj_content`) first.
+
+---
+
+## Task 11 (added mid-execution): Align layer mapping with upstream KI_LAYERS + SOLIDREGION filter
+
+**Files:**
+- Modify: `plugins/lcsc_manager/converters/jlc2kicad/footprint_handlers.py` (`layer_correspondance` dict + new `_SOLID_REGION_LAYERS` + `h_SOLIDREGION` filter)
+- Extend: `tests/test_footprint_handlers_patches.py` (12 new tests)
+
+**Context (why this was added):** User testing of the Task 1–10 integration revealed that imported footprints had graphics landing on the wrong KiCad layers. Investigation against upstream `easyeda2kicad v1.0.1` `parameters_kicad_footprint.KI_LAYERS` showed **seven EasyEDA layers** were miswired in the project:
+
+| EasyEDA ID | EasyEDA meaning | Current (wrong) | Upstream (correct) |
+|---|---|---|---|
+| 12 | Document | `F.Fab` | `Cmts.User` |
+| 13 | TopAssembly | `B.Fab` | `F.Fab` |
+| 14 | BottomAssembly | `F.CrtYd` | `B.Fab` |
+| 15 | Mechanical | `B.CrtYd` | `Dwgs.User` |
+| 99 | ComponentShape (LIBBODY) | `User.1` | `F.CrtYd` |
+| 100 | LeadShape | `User.2` | `F.Fab` |
+| 101 | ComponentPolarity | `User.3` | `F.SilkS` |
+
+The TopAssembly/BottomAssembly swap (13/14) is especially bad: assembly graphics were landing on the wrong side of the board. The 99/100/101 → User.1/2/3 dumping cluttered KiCad's User layers with decorative EasyEDA markers that upstream intentionally routes to their semantic layers or drops entirely.
+
+In addition, upstream filters SOLIDREGION shapes through an allow-list (`_SOLID_REGION_LAYERS = {3, 4, 13, 14, 99}`) to drop decorative regions on layers 100/101 (lead solder indicators, pin-1 markers) that would otherwise pollute F.Fab/F.SilkS. This project had no such filter.
+
+**Deliverables:**
+
+1. Replace `layer_correspondance` with the upstream `KI_LAYERS` table (strings-keyed to match existing project convention).
+2. Add `_SOLID_REGION_LAYERS = {"3", "4", "13", "14", "99"}` constant.
+3. Update `h_SOLIDREGION` with an early-return filter for non-npth regions on disallowed layers. Preserve the existing npth → Edge.Cuts special case (runs BEFORE the filter check).
+4. Add 12 unit tests in `test_footprint_handlers_patches.py`:
+   - 8 layer_correspondance assertions (7 corrected layers + no-User-mappings sanity check)
+   - 3 SOLIDREGION filter tests (layer 99 imported, 100 skipped, 101 skipped)
+   - 1 npth-routing regression test
+
+**Backward compatibility note:** Existing users who previously imported footprints with the old (wrong) layer mapping will see different layer assignments on future imports. The old graphics in already-placed footprints are unchanged — only new imports use the corrected mapping.
+
+**Upstream reference:** `/tmp/easyeda2kicad/easyeda2kicad/kicad/parameters_kicad_footprint.py:94-112` (`KI_LAYERS`) and `export_kicad_footprint.py:210` (`_SOLID_REGION_LAYERS`).
