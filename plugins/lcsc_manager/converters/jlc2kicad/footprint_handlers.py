@@ -458,61 +458,48 @@ def h_SOLIDREGION(data, kicad_mod, footprint_info):
     points = []
     current_pos = (0.0, 0.0)
 
-    # Parse SVG path
-    command_pattern = re.compile(
-        r"([MLAZ])\s*"
-        r"((?:[-+]?\d*\.?\d+[\s,]*)*)",
-        re.IGNORECASE,
+    # Parse SVG path — tokenize per command (M/L/H/V/A/Z)
+    command_regex = re.compile(
+        r"([MLHVAZmlhvaz])\s*((?:[-+]?\d*\.?\d+[\s,]*)*)"
     )
+    number_regex = re.compile(r"[-+]?\d*\.?\d+")
 
-    # Pattern to extract numbers
-    number_pattern = re.compile(r"[-+]?\d*\.?\d+")
-
-    for match in command_pattern.finditer(path):
+    for match in command_regex.finditer(path):
         cmd = match.group(1).upper()
-        params_str = match.group(2)
-        params = [float(n) for n in number_pattern.findall(params_str)]
+        params = [float(n) for n in number_regex.findall(match.group(2))]
 
-        if cmd == "M":
-            # Move to: M x y
-            if len(params) >= 2:
-                current_pos = (params[0], params[1])
-                points.append(current_pos)
+        if cmd == "M" and len(params) >= 2:
+            current_pos = (params[0], params[1])
+            points.append(current_pos)
 
-        elif cmd == "L":
-            # Line to: L x y
-            if len(params) >= 2:
-                current_pos = (params[0], params[1])
-                points.append(current_pos)
+        elif cmd == "L" and len(params) >= 2:
+            current_pos = (params[0], params[1])
+            points.append(current_pos)
 
-        elif cmd == "A":
-            # Arc: A rx ry rotation large-arc-flag sweep-flag x y
-            if len(params) >= 7:
-                rx = params[0]
-                ry = params[1]
-                rotation = params[2]
-                large_arc_flag = int(params[3])
-                sweep_flag = int(params[4])
-                end_x = params[5]
-                end_y = params[6]
+        elif cmd == "H" and len(params) >= 1:
+            current_pos = (params[0], current_pos[1])
+            points.append(current_pos)
 
-                arc_points = svg_arc_to_points(
-                    current_pos[0],
-                    current_pos[1],
-                    rx,
-                    ry,
-                    rotation,
-                    large_arc_flag,
-                    sweep_flag,
-                    end_x,
-                    end_y,
-                )
-                points.extend(arc_points)
-                current_pos = (end_x, end_y)
+        elif cmd == "V" and len(params) >= 1:
+            current_pos = (current_pos[0], params[0])
+            points.append(current_pos)
+
+        elif cmd == "A" and len(params) >= 7:
+            rx, ry, rotation = params[0], params[1], params[2]
+            large_arc_flag = int(params[3])
+            sweep_flag = int(params[4])
+            end_x, end_y = params[5], params[6]
+            arc_points = svg_arc_to_points(
+                current_pos[0], current_pos[1],
+                rx, ry, rotation,
+                large_arc_flag, sweep_flag,
+                end_x, end_y,
+            )
+            points.extend(arc_points)
+            current_pos = (end_x, end_y)
 
         elif cmd == "Z":
-            # Close path - no action needed, polygon will close automatically
-            pass
+            pass  # polygon auto-closes
 
     # Convert from mils to mm
     points = [(mil2mm(p[0]), mil2mm(p[1])) for p in points]
