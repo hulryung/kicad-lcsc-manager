@@ -2,9 +2,31 @@
 End-to-end regression test for component import after upstream integration.
 Run with: python3 tests/test_regression_components.py
 
-This test HITS REAL APIs (EasyEDA, JLCPCB). Rate-limited -- don't spam.
-Validates structural invariants on the imported symbol/footprint/3D model,
+This test HITS REAL APIs (EasyEDA, JLCPCB). Rate-limited — don't spam.
+Validates structural invariants on imported symbol/footprint/3D model output,
 not exact golden-file comparisons.
+
+What this test DOES cover end-to-end on real data:
+  - Component lookup via LCSCAPIClient.search_component
+  - Symbol conversion: verifies pins exist, canonical pin numbers (no ^^
+    remnants) — exercises Task 9's num-segment extraction
+  - 3D model download + OBJ→WRL conversion — exercises Tasks 1-3
+    (OBJ bbox, centering, EE placement offset)
+
+What this test does NOT cover end-to-end:
+  - The REAL footprint converter path. When KicadModTree is not installed
+    (standard for any environment outside KiCad's embedded Python), the
+    FootprintConverter falls back to a hardcoded placeholder footprint with
+    exactly 2 synthetic pads. The (pad ...) assertions pass trivially on
+    that placeholder and do NOT exercise Task 6 (H/V in h_SOLIDREGION),
+    Task 7 (_normalize_pad_number), or Task 8 (h_VIA as THT plated) on
+    real EasyEDA footprint data.
+
+    Handler-level coverage for the footprint path lives in
+    tests/test_footprint_handlers_patches.py — that file uses a
+    KicadModTree stub and exercises each handler directly on synthetic
+    fixtures. If you need confidence that a real imported footprint is
+    correct, run the plugin inside KiCad and visually inspect the output.
 """
 import sys
 import tempfile
