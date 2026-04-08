@@ -135,10 +135,25 @@ def test_pad_number_empty():
     print("test_pad_number_empty: PASS")
 
 
+def test_pad_number_empty_parens():
+    """Empty parens '()' must become empty string, not literal '()'."""
+    assert _normalize_pad_number("()") == ""
+    assert _normalize_pad_number("  ()  ") == ""
+    print("test_pad_number_empty_parens: PASS")
+
+
+def test_pad_number_nested_parens():
+    """Nested parens — outermost span wins (documented behaviour)."""
+    assert _normalize_pad_number("A(B(1))") == "B(1)"
+    print("test_pad_number_nested_parens: PASS")
+
+
 if __name__ == "__main__":
     test_solid_region_handles_h_v_commands()
     test_solid_region_ignores_lowercase_commands()
     test_pad_number_bare_number()
     test_pad_number_parenthesized()
     test_pad_number_empty()
+    test_pad_number_empty_parens()
+    test_pad_number_nested_parens()
     print("\nFootprint handler patch tests passed.")

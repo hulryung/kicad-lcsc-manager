@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from math import acos, cos, pi, pow, radians, sin, sqrt
+from typing import Optional
 
 from KicadModTree import (
     Arc,
@@ -58,14 +59,21 @@ def mil2mm(data):
     return float(data) / 3.937
 
 
-def _normalize_pad_number(raw: str) -> str:
+def _normalize_pad_number(raw: Optional[str]) -> str:
     """
     Canonicalize EasyEDA pad numbers.
 
     EasyEDA sometimes encodes pads as ``NAME(NUMBER)`` (e.g. ``"A(1)"``,
     ``"VCC(3)"``). KiCad expects the bare number, so return the part inside
-    the parentheses if present. Otherwise return the stripped original.
-    Empty/None -> "".
+    the parentheses if present.
+
+    Behaviour:
+    - ``""``, ``None`` → ``""`` (empty string, valid "no number" pad in KiCad).
+    - ``"A(1)"`` → ``"1"`` (parenthesized canonical case).
+    - ``"()"`` → ``""`` (empty parens are treated as no number).
+    - ``"A(B(1))"`` → ``"B(1)"`` (nested parens: we take the outermost
+      parenthesized span; EasyEDA is not known to emit nested names).
+    - ``"42"`` → ``"42"`` (bare values pass through after strip).
 
     Ported from easyeda2kicad.py v1.0.1 export_kicad_footprint.py.
     """
@@ -73,12 +81,10 @@ def _normalize_pad_number(raw: str) -> str:
         return ""
     s = str(raw).strip()
     if "(" in s and ")" in s:
-        try:
-            inside = s.split("(", 1)[1].rsplit(")", 1)[0].strip()
-            if inside:
-                return inside
-        except IndexError:
-            pass
+        # Both delimiters present — extraction cannot IndexError because
+        # split("(", 1) and rsplit(")", 1) always return 2-element lists here.
+        inside = s.split("(", 1)[1].rsplit(")", 1)[0].strip()
+        return inside  # may legitimately be "" for inputs like "()"
     return s
 
 
