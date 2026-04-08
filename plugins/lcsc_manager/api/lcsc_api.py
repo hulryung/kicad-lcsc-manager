@@ -156,12 +156,20 @@ class LCSCAPIClient:
             return None
 
     def _cache_write(self, path: Path, data: str) -> None:
-        """Write data to cache if caching is enabled. Silent on failure."""
+        """
+        Write data to cache if caching is enabled. Silent on failure.
+
+        Uses write-then-rename for atomicity: readers will either see the
+        fully-written file or the old file (if any), never a torn state.
+        Important because search_component runs from background threads.
+        """
         if not self.use_cache:
             return
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(data, encoding="utf-8")
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(data, encoding="utf-8")
+            tmp.replace(path)
         except Exception as e:
             logger.warning(f"Cache write failed ({path}): {e}")
 
@@ -346,6 +354,10 @@ class LCSCAPIClient:
                     logger.info(f"Cache hit: {lcsc_id}")
                 except json.JSONDecodeError:
                     logger.warning(f"Invalid cached JSON for {lcsc_id}, refetching")
+                    try:
+                        cache_path.unlink()
+                    except OSError:
+                        pass
                     response = None
 
             if response is None:

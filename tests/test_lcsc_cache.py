@@ -9,6 +9,7 @@ directly, then validate opt-in behaviour.
 import sys
 import tempfile
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
@@ -16,89 +17,95 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 from lcsc_manager.api.lcsc_api import LCSCAPIClient
 
 
-def _make_client_with_cache(enabled: bool, cache_dir: Path) -> LCSCAPIClient:
-    """Create a client with a temp cache dir and specified enabled state."""
-    # Override the class attribute BEFORE instantiating so __init__ uses it
-    LCSCAPIClient.CACHE_DIR = cache_dir
-    client = LCSCAPIClient()
-    # Override the per-instance flag (config may not have the key set)
-    client.use_cache = enabled
-    if enabled:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-    return client
+@contextmanager
+def _client_with_cache(enabled: bool, cache_dir: Path):
+    """
+    Context manager that yields an LCSCAPIClient with the cache dir
+    overridden. Restores the original class attribute on exit so tests
+    can't leak state into each other.
+    """
+    original_cache_dir = LCSCAPIClient.CACHE_DIR
+    try:
+        LCSCAPIClient.CACHE_DIR = cache_dir
+        client = LCSCAPIClient()
+        client.use_cache = enabled
+        if enabled:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        yield client
+    finally:
+        LCSCAPIClient.CACHE_DIR = original_cache_dir
 
 
 def test_cache_path_sanitizes_identifier():
     with tempfile.TemporaryDirectory() as tmp:
-        client = _make_client_with_cache(True, Path(tmp))
-        # Slashes in identifier must be sanitized
-        p = client._cache_path("component/with/slash")
-        assert "/" not in p.name, f"slash leaked into cache filename: {p.name}"
-        assert p.suffix == ".json"
-        print("test_cache_path_sanitizes_identifier: PASS")
+        with _client_with_cache(True, Path(tmp)) as client:
+            p = client._cache_path("component/with/slash")
+            assert "/" not in p.name, f"slash leaked into cache filename: {p.name}"
+            assert p.suffix == ".json"
+    print("test_cache_path_sanitizes_identifier: PASS")
 
 
 def test_cache_read_returns_none_when_disabled():
     with tempfile.TemporaryDirectory() as tmp:
-        client = _make_client_with_cache(False, Path(tmp))
-        path = client._cache_path("C123")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text('{"hello": "world"}')
-        result = client._cache_read(path)
-        assert result is None, f"expected None when disabled, got {result!r}"
-        print("test_cache_read_returns_none_when_disabled: PASS")
+        with _client_with_cache(False, Path(tmp)) as client:
+            path = client._cache_path("C123")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"hello": "world"}')
+            result = client._cache_read(path)
+            assert result is None, f"expected None when disabled, got {result!r}"
+    print("test_cache_read_returns_none_when_disabled: PASS")
 
 
 def test_cache_read_returns_content_when_enabled():
     with tempfile.TemporaryDirectory() as tmp:
-        client = _make_client_with_cache(True, Path(tmp))
-        path = client._cache_path("C123")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text('{"hello": "world"}')
-        result = client._cache_read(path)
-        assert result == '{"hello": "world"}', f"got {result!r}"
-        print("test_cache_read_returns_content_when_enabled: PASS")
+        with _client_with_cache(True, Path(tmp)) as client:
+            path = client._cache_path("C123")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"hello": "world"}')
+            result = client._cache_read(path)
+            assert result == '{"hello": "world"}', f"got {result!r}"
+    print("test_cache_read_returns_content_when_enabled: PASS")
 
 
 def test_cache_read_missing_file_returns_none():
     with tempfile.TemporaryDirectory() as tmp:
-        client = _make_client_with_cache(True, Path(tmp))
-        path = client._cache_path("C_missing")
-        result = client._cache_read(path)
-        assert result is None
-        print("test_cache_read_missing_file_returns_none: PASS")
+        with _client_with_cache(True, Path(tmp)) as client:
+            path = client._cache_path("C_missing")
+            result = client._cache_read(path)
+            assert result is None
+    print("test_cache_read_missing_file_returns_none: PASS")
 
 
 def test_cache_write_noop_when_disabled():
     with tempfile.TemporaryDirectory() as tmp:
-        client = _make_client_with_cache(False, Path(tmp))
-        path = client._cache_path("C123")
-        client._cache_write(path, '{"x": 1}')
-        assert not path.exists(), f"cache file should not exist when disabled"
-        print("test_cache_write_noop_when_disabled: PASS")
+        with _client_with_cache(False, Path(tmp)) as client:
+            path = client._cache_path("C123")
+            client._cache_write(path, '{"x": 1}')
+            assert not path.exists(), f"cache file should not exist when disabled"
+    print("test_cache_write_noop_when_disabled: PASS")
 
 
 def test_cache_write_persists_when_enabled():
     with tempfile.TemporaryDirectory() as tmp:
-        client = _make_client_with_cache(True, Path(tmp))
-        path = client._cache_path("C123")
-        payload = json.dumps({"success": True, "result": {"name": "test"}})
-        client._cache_write(path, payload)
-        assert path.exists(), "cache file should exist"
-        assert path.read_text() == payload
-        print("test_cache_write_persists_when_enabled: PASS")
+        with _client_with_cache(True, Path(tmp)) as client:
+            path = client._cache_path("C123")
+            payload = json.dumps({"success": True, "result": {"name": "test"}})
+            client._cache_write(path, payload)
+            assert path.exists(), "cache file should exist"
+            assert path.read_text() == payload
+    print("test_cache_write_persists_when_enabled: PASS")
 
 
 def test_roundtrip():
     with tempfile.TemporaryDirectory() as tmp:
-        client = _make_client_with_cache(True, Path(tmp))
-        path = client._cache_path("C_round")
-        payload = json.dumps({"success": True, "nested": [1, 2, 3]})
-        client._cache_write(path, payload)
-        read_back = client._cache_read(path)
-        assert read_back == payload
-        assert json.loads(read_back)["nested"] == [1, 2, 3]
-        print("test_roundtrip: PASS")
+        with _client_with_cache(True, Path(tmp)) as client:
+            path = client._cache_path("C_round")
+            payload = json.dumps({"success": True, "nested": [1, 2, 3]})
+            client._cache_write(path, payload)
+            read_back = client._cache_read(path)
+            assert read_back == payload
+            assert json.loads(read_back)["nested"] == [1, 2, 3]
+    print("test_roundtrip: PASS")
 
 
 if __name__ == "__main__":
