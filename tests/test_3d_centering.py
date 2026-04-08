@@ -59,14 +59,26 @@ def test_convert_centered_wrl():
     # After centering the test bbox (x:2-6, y:4-8, z:1-5), the vertices
     # should be X in [-2, 2], Y in [-2, 2], Z in [0, 4] (in mm), then /2.54.
     # Check min/max roughly match expected centered values.
+
+    # Extract only the point [...] contents so material color lines don't
+    # contaminate the coordinate regex.
     import re
-    points = re.findall(r"([-\d.]+) ([-\d.]+) ([-\d.]+)", wrl)
-    xs = [float(p[0]) for p in points]
-    ys = [float(p[1]) for p in points]
-    zs = [float(p[2]) for p in points]
-    # Allow tiny float error
+    point_section = re.search(r"point \[(.*?)\]", wrl, re.DOTALL)
+    assert point_section is not None, "WRL has no point section"
+    coords = re.findall(
+        r"([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)",
+        point_section.group(1),
+    )
+    assert coords, "no coordinates extracted from point section"
+    xs = [float(p[0]) for p in coords]
+    ys = [float(p[1]) for p in coords]
+    zs = [float(p[2]) for p in coords]
+    # X and Y should be centered around 0 (fixture bbox x:2-6 y:4-8).
     assert abs(min(xs) + round(2.0/2.54, 4)) < 0.01, f"X min wrong: {min(xs)}"
     assert abs(max(xs) - round(2.0/2.54, 4)) < 0.01, f"X max wrong: {max(xs)}"
+    assert abs(min(ys) + round(2.0/2.54, 4)) < 0.01, f"Y min wrong: {min(ys)}"
+    assert abs(max(ys) - round(2.0/2.54, 4)) < 0.01, f"Y max wrong: {max(ys)}"
+    # Z should be shifted so bottom sits at 0 (fixture bbox z:1-5).
     assert abs(min(zs)) < 0.001, f"Z min should be 0, got {min(zs)}"
     print("test_convert_centered_wrl: PASS")
 
@@ -82,9 +94,14 @@ def test_convert_with_ee_offset():
     )
     assert wrl is not None
     import re
-    points = re.findall(r"([-\d.]+) ([-\d.]+) ([-\d.]+)", wrl)
-    xs = [float(p[0]) for p in points]
-    # With +2.54 EE offset, centered X min should shift by +1
+    point_section = re.search(r"point \[(.*?)\]", wrl, re.DOTALL)
+    assert point_section is not None
+    coords = re.findall(
+        r"([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)",
+        point_section.group(1),
+    )
+    xs = [float(p[0]) for p in coords]
+    # With +2.54 EE offset, centered X min should shift by +1.
     assert abs(min(xs) - (-round(2.0/2.54, 4) + 1.0)) < 0.01, \
         f"X with EE offset wrong: {min(xs)}"
     print("test_convert_with_ee_offset: PASS")
