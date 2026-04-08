@@ -580,10 +580,55 @@ def h_SVGNODE(data, kicad_mod, footprint_info):
 
 
 def h_VIA(data, kicad_mod, footprint_info):
-    logging.warning(
-        "VIA not supported. Via are often added for better heat dissipation. "
-        "Be careful and read datasheet if needed."
-    )
+    """
+    Convert an EasyEDA via into a KiCad NPTH pad.
+
+    Most EasyEDA vias in footprints are heat-dissipation vias or connection
+    points that need physical holes in the board. KiCad does not support
+    'via' objects inside .kicad_mod; we emit them as non-plated through
+    holes to preserve the physical presence.
+
+    EasyEDA VIA serialization: VIA~x~y~diameter~net~radius~id~...
+    data : [
+        0 : x          (mils, center)
+        1 : y          (mils, center)
+        2 : diameter   (mils, outer pad/copper ring diameter → Pad size)
+        3 : net        (unused)
+        4 : radius     (mils, drill hole radius → drill = radius * 2)
+        5 : id         (unused)
+        ...
+    ]
+    """
+    try:
+        at = [mil2mm(data[0]), mil2mm(data[1])]
+        # data[2] is the full outer diameter (not radius), so no * 2 needed
+        size = float(mil2mm(data[2]))
+        # data[4] is the drill hole radius; double it to get drill diameter
+        drill = (
+            float(mil2mm(data[4])) * 2
+            if len(data) > 4 and data[4]
+            else size / 2
+        )
+
+        footprint_info.max_X = max(footprint_info.max_X, at[0])
+        footprint_info.min_X = min(footprint_info.min_X, at[0])
+        footprint_info.max_Y = max(footprint_info.max_Y, at[1])
+        footprint_info.min_Y = min(footprint_info.min_Y, at[1])
+
+        kicad_mod.append(
+            Pad(
+                number="",
+                type=Pad.TYPE_NPTH,
+                shape=Pad.SHAPE_CIRCLE,
+                at=at,
+                size=size,
+                rotation=0,
+                drill=drill,
+                layers=Pad.LAYERS_NPTH,
+            )
+        )
+    except (ValueError, IndexError) as e:
+        logging.warning(f"h_VIA: failed to parse via data {data}: {e}")
 
 
 def h_RECT(data, kicad_mod, footprint_info):

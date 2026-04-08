@@ -148,6 +148,33 @@ def test_pad_number_nested_parens():
     print("test_pad_number_nested_parens: PASS")
 
 
+def test_via_becomes_npth_pad():
+    """h_VIA should emit an NPTH Pad, not just warn."""
+    # VIA format: x=0, y=0, diameter=40 mils, net="gnd", radius=15 mils
+    # diameter=40 mils -> size = 40/3.937 mm
+    # radius=15 mils  -> drill = 15*2/3.937 = 30/3.937 mm
+    data = ["0", "0", "40", "gnd", "15", "via_id"]
+    mod = FakeKicadMod()
+    info = FakeFootprintInfo()
+
+    fh.h_VIA(data, mod, info)
+
+    assert len(mod.appended) == 1, f"expected 1 pad, got {len(mod.appended)}"
+    pad = mod.appended[0]
+    kw = pad._kw
+    assert kw.get("type") == fh.Pad.TYPE_NPTH, f"type wrong: {kw.get('type')}"
+    assert kw.get("shape") == fh.Pad.SHAPE_CIRCLE, f"shape wrong: {kw.get('shape')}"
+    # size = diameter (40 mils) converted to mm = 40/3.937 ≈ 1.016 mm
+    size = kw.get("size")
+    assert size is not None and size > 0, f"size wrong: {size}"
+    assert abs(size - (40 / 3.937)) < 0.01, f"size out of range: {size}"
+    # drill = radius (15 mils) * 2 converted to mm = 30/3.937 ≈ 0.762 mm
+    drill = kw.get("drill")
+    assert drill is not None and drill > 0, f"drill wrong: {drill}"
+    assert abs(drill - (30 / 3.937)) < 0.01, f"drill out of range: {drill}"
+    print("test_via_becomes_npth_pad: PASS")
+
+
 if __name__ == "__main__":
     test_solid_region_handles_h_v_commands()
     test_solid_region_ignores_lowercase_commands()
@@ -156,4 +183,5 @@ if __name__ == "__main__":
     test_pad_number_empty()
     test_pad_number_empty_parens()
     test_pad_number_nested_parens()
+    test_via_becomes_npth_pad()
     print("\nFootprint handler patch tests passed.")
