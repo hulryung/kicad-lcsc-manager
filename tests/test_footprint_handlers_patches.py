@@ -180,6 +180,109 @@ def test_via_becomes_thru_hole_pad():
     print("test_via_becomes_thru_hole_pad: PASS")
 
 
+def test_layer_correspondance_top_assembly():
+    """Layer 13 = TopAssembly → F.Fab (was wrongly B.Fab)."""
+    assert fh.layer_correspondance["13"] == "F.Fab", \
+        f"layer 13 wrong: {fh.layer_correspondance['13']}"
+    print("test_layer_correspondance_top_assembly: PASS")
+
+
+def test_layer_correspondance_bottom_assembly():
+    """Layer 14 = BottomAssembly → B.Fab (was wrongly F.CrtYd)."""
+    assert fh.layer_correspondance["14"] == "B.Fab"
+    print("test_layer_correspondance_bottom_assembly: PASS")
+
+
+def test_layer_correspondance_document():
+    """Layer 12 = Document → Cmts.User (was wrongly F.Fab)."""
+    assert fh.layer_correspondance["12"] == "Cmts.User"
+    print("test_layer_correspondance_document: PASS")
+
+
+def test_layer_correspondance_mechanical():
+    """Layer 15 = Mechanical → Dwgs.User (was wrongly B.CrtYd)."""
+    assert fh.layer_correspondance["15"] == "Dwgs.User"
+    print("test_layer_correspondance_mechanical: PASS")
+
+
+def test_layer_correspondance_component_shape():
+    """Layer 99 = Component Shape (LIBBODY) → F.CrtYd (was User.1)."""
+    assert fh.layer_correspondance["99"] == "F.CrtYd"
+    print("test_layer_correspondance_component_shape: PASS")
+
+
+def test_layer_correspondance_lead_shape():
+    """Layer 100 = Lead Shape → F.Fab (was User.2)."""
+    assert fh.layer_correspondance["100"] == "F.Fab"
+    print("test_layer_correspondance_lead_shape: PASS")
+
+
+def test_layer_correspondance_polarity():
+    """Layer 101 = Component Polarity → F.SilkS (was User.3)."""
+    assert fh.layer_correspondance["101"] == "F.SilkS"
+    print("test_layer_correspondance_polarity: PASS")
+
+
+def test_layer_correspondance_no_user_layers():
+    """After the upstream alignment no EasyEDA layer should map to User.N."""
+    user_mappings = [
+        (k, v) for k, v in fh.layer_correspondance.items()
+        if v.startswith("User.")
+    ]
+    assert not user_mappings, f"unexpected User.* mappings: {user_mappings}"
+    print("test_layer_correspondance_no_user_layers: PASS")
+
+
+def test_solid_region_layer_99_still_imported():
+    """SOLIDREGION on layer 99 (component shape) is allowed by the filter."""
+    data = ["99", "id_99", "M 0 0 L 100 0 L 100 50 L 0 50 Z", "solid"]
+    mod = FakeKicadMod()
+    info = FakeFootprintInfo()
+    fh.h_SOLIDREGION(data, mod, info)
+    assert len(mod.appended) == 1, \
+        f"expected 1 polygon on layer 99, got {len(mod.appended)}"
+    print("test_solid_region_layer_99_still_imported: PASS")
+
+
+def test_solid_region_layer_100_skipped():
+    """SOLIDREGION on layer 100 (decorative lead shape) must be dropped."""
+    data = ["100", "id_100", "M 0 0 L 100 0 L 100 50 L 0 50 Z", "solid"]
+    mod = FakeKicadMod()
+    info = FakeFootprintInfo()
+    fh.h_SOLIDREGION(data, mod, info)
+    assert len(mod.appended) == 0, \
+        f"layer 100 should be skipped, got {len(mod.appended)} polygons"
+    print("test_solid_region_layer_100_skipped: PASS")
+
+
+def test_solid_region_layer_101_skipped():
+    """SOLIDREGION on layer 101 (decorative polarity marker) must be dropped."""
+    data = ["101", "id_101", "M 0 0 L 100 0 L 100 50 L 0 50 Z", "solid"]
+    mod = FakeKicadMod()
+    info = FakeFootprintInfo()
+    fh.h_SOLIDREGION(data, mod, info)
+    assert len(mod.appended) == 0, \
+        f"layer 101 should be skipped, got {len(mod.appended)} polygons"
+    print("test_solid_region_layer_101_skipped: PASS")
+
+
+def test_solid_region_npth_still_edge_cuts():
+    """npth region_type still routes to Edge.Cuts regardless of layer."""
+    # npth on a non-allowed layer (5) should STILL be imported to Edge.Cuts
+    data = ["5", "id_npth", "M 0 0 L 100 0 L 100 50 L 0 50 Z", "npth"]
+    mod = FakeKicadMod()
+    info = FakeFootprintInfo()
+    fh.h_SOLIDREGION(data, mod, info)
+    assert len(mod.appended) == 1, \
+        f"npth SOLIDREGION should produce 1 polygon, got {len(mod.appended)}"
+    # Check the layer on the emitted Polygon
+    poly = mod.appended[0]
+    # Our FakeKicadMod stub captures kwargs in _kw
+    layer = poly._kw.get("layer") if hasattr(poly, "_kw") else None
+    assert layer == "Edge.Cuts", f"npth layer wrong: {layer}"
+    print("test_solid_region_npth_still_edge_cuts: PASS")
+
+
 if __name__ == "__main__":
     test_solid_region_handles_h_v_commands()
     test_solid_region_ignores_lowercase_commands()
@@ -189,4 +292,16 @@ if __name__ == "__main__":
     test_pad_number_empty_parens()
     test_pad_number_nested_parens()
     test_via_becomes_thru_hole_pad()
+    test_layer_correspondance_top_assembly()
+    test_layer_correspondance_bottom_assembly()
+    test_layer_correspondance_document()
+    test_layer_correspondance_mechanical()
+    test_layer_correspondance_component_shape()
+    test_layer_correspondance_lead_shape()
+    test_layer_correspondance_polarity()
+    test_layer_correspondance_no_user_layers()
+    test_solid_region_layer_99_still_imported()
+    test_solid_region_layer_100_skipped()
+    test_solid_region_layer_101_skipped()
+    test_solid_region_npth_still_edge_cuts()
     print("\nFootprint handler patch tests passed.")

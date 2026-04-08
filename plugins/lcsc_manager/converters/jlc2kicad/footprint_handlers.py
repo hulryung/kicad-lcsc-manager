@@ -43,16 +43,25 @@ layer_correspondance = {
     "6": "B.Paste",
     "7": "F.Mask",
     "8": "B.Mask",
-    "10": "Edge.Cuts",
-    "11": "F.Cu",  # EasyEDA "Multilayer" → map to F.Cu (pads handle this separately)
-    "12": "F.Fab",
-    "13": "B.Fab",
-    "14": "F.CrtYd",
-    "15": "B.CrtYd",
-    "99": "User.1",  # EasyEDA "Component shape layer"
-    "100": "User.2",  # EasyEDA "Pin soldering layer"
-    "101": "User.3",  # EasyEDA "Component marking layer"
+    "10": "Edge.Cuts",      # BoardOutLine
+    "11": "F.Cu",           # EasyEDA Multi-Layer → F.Cu (pads handle *.Cu separately)
+    "12": "Cmts.User",      # Document
+    "13": "F.Fab",          # TopAssembly
+    "14": "B.Fab",          # BottomAssembly
+    "15": "Dwgs.User",      # Mechanical
+    "99": "F.CrtYd",        # ComponentShapeLayer (LIBBODY) — invisible in EasyEDA
+    "100": "F.Fab",         # LeadShapeLayer — lead shapes for fabrication
+    "101": "F.SilkS",       # ComponentPolarityLayer — polarity markings
 }
+# Ported from easyeda2kicad.py v1.0.1 parameters_kicad_footprint.py KI_LAYERS.
+
+# SOLIDREGIONs are only imported on these layers — others (5/6 paste, 100/101
+# decorative) are intentionally dropped. Ported from easyeda2kicad.py v1.0.1
+# export_kicad_footprint._SOLID_REGION_LAYERS.
+# Layer 99 (ComponentShapeLayer/LIBBODY) is not visible in EasyEDA but maps to
+# F.CrtYd outline in KiCad. Layer 100 is skipped (decorative lead shapes).
+# Layer 101 is skipped (decorative pin-1 marker circles).
+_SOLID_REGION_LAYERS = {"3", "4", "13", "14", "99"}
 
 
 def mil2mm(data):
@@ -475,14 +484,28 @@ def svg_arc_to_points(x1, y1, rx, ry, rotation, large_arc_flag, sweep_flag, x2, 
 
 
 def h_SOLIDREGION(data, kicad_mod, footprint_info):
-    if data[3] == "npth":
+    layer_id = data[0]
+    region_type = data[3] if len(data) > 3 else "solid"
+
+    if region_type == "npth":
+        # Non-plated through holes routed to Edge.Cuts regardless of layer.
         layer = "Edge.Cuts"
     else:
+        # Filter decorative SOLIDREGIONs — only import on the allow-list.
+        # See _SOLID_REGION_LAYERS module-level constant and upstream
+        # easyeda2kicad v1.0.1 export_kicad_footprint._SOLID_REGION_LAYERS.
+        if layer_id not in _SOLID_REGION_LAYERS:
+            logging.debug(
+                f"h_SOLIDREGION: skipping decorative region on layer {layer_id}"
+            )
+            return
         try:
-            layer = layer_correspondance[data[0]]
+            layer = layer_correspondance[layer_id]
         except KeyError:
-            logging.warning(f"footprint h_SOLIDREGION: layer correspondance not found for layer {data[0]}")
-            layer = "F.Cu"
+            logging.warning(
+                f"h_SOLIDREGION: unknown layer {layer_id}, defaulting to F.SilkS"
+            )
+            layer = "F.SilkS"
 
     path = data[2]
     points = []
