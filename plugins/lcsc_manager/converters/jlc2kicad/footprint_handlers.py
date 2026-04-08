@@ -458,14 +458,17 @@ def h_SOLIDREGION(data, kicad_mod, footprint_info):
     points = []
     current_pos = (0.0, 0.0)
 
-    # Parse SVG path — tokenize per command (M/L/H/V/A/Z)
+    # SVG path commands — EasyEDA emits only uppercase (absolute) commands.
+    # We intentionally do NOT accept lowercase (relative) forms: matching
+    # upstream easyeda2kicad v1.0.1 behavior, and failing loudly (via the
+    # else-branch warning below) if EasyEDA ever starts emitting them.
     command_regex = re.compile(
-        r"([MLHVAZmlhvaz])\s*((?:[-+]?\d*\.?\d+[\s,]*)*)"
+        r"([MLHVAZ])\s*((?:[-+]?\d*\.?\d+[\s,]*)*)"
     )
     number_regex = re.compile(r"[-+]?\d*\.?\d+")
 
     for match in command_regex.finditer(path):
-        cmd = match.group(1).upper()
+        cmd = match.group(1)  # already uppercase per regex
         params = [float(n) for n in number_regex.findall(match.group(2))]
 
         if cmd == "M" and len(params) >= 2:
@@ -500,6 +503,11 @@ def h_SOLIDREGION(data, kicad_mod, footprint_info):
 
         elif cmd == "Z":
             pass  # polygon auto-closes
+
+        else:
+            logging.warning(
+                f"h_SOLIDREGION: unhandled SVG path command '{cmd}' in: {path!r}"
+            )
 
     # Convert from mils to mm
     points = [(mil2mm(p[0]), mil2mm(p[1])) for p in points]

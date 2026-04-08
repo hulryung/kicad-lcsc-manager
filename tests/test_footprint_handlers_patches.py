@@ -85,6 +85,35 @@ def test_solid_region_handles_h_v_commands():
     print("test_solid_region_handles_h_v_commands: PASS")
 
 
+def test_solid_region_ignores_lowercase_commands():
+    """Lowercase relative commands are not matched by the regex (matches upstream)."""
+    # Lowercase h should NOT be parsed — only the M absolute at the start.
+    data = ["99", "id_lc", "M 0 0 h 100 v 50 z", "solid"]
+    mod = FakeKicadMod()
+    info = FakeFootprintInfo()
+
+    fh.h_SOLIDREGION(data, mod, info)
+
+    # Should get either no polygon (fewer than 3 points after filtering) or
+    # a degenerate single-point polygon. Most importantly, the lowercase h/v
+    # must NOT produce additional points as if they were absolute.
+    if mod.appended:
+        poly = mod.appended[0]
+        nodes = list(poly.nodes) if hasattr(poly, "nodes") else poly.nodes
+        # At most 1 point (the M); definitely no (100/3.937, 0) or similar
+        def xy(n):
+            if isinstance(n, (tuple, list)):
+                return float(n[0]), float(n[1])
+            return float(n.x), float(n.y)
+        pts = [xy(n) for n in nodes]
+        # If any point has X close to 100/3.937 we've got the bug back
+        for x, y in pts:
+            assert abs(x - (100 / 3.937)) > 0.1, \
+                f"lowercase h was treated as absolute: point {(x, y)}"
+    print("test_solid_region_ignores_lowercase_commands: PASS")
+
+
 if __name__ == "__main__":
     test_solid_region_handles_h_v_commands()
+    test_solid_region_ignores_lowercase_commands()
     print("\nFootprint handler patch tests passed.")
