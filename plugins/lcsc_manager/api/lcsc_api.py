@@ -5,6 +5,7 @@ This module provides functions to search and fetch component data from LCSC/Easy
 Note: These APIs are not officially documented and were reverse-engineered.
 """
 import glob
+import json
 import sys
 import requests
 import time
@@ -92,10 +93,15 @@ class LCSCAPIClient:
     REQUEST_DELAY = 5.0  # seconds between requests
     RETRY_DELAY = 10.0  # seconds to wait before retry on 403
 
+    CACHE_DIR = Path.home() / ".kicad_lcsc_manager_cache"
+
     def __init__(self):
         """Initialize LCSC API client"""
         self.config = get_config()
         self.last_request_time = 0
+        self.use_cache = bool(self.config.get("api_cache_enabled", False))
+        if self.use_cache:
+            self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     def _get_session(self):
         """Get a fresh session with proper headers for each request"""
@@ -133,6 +139,31 @@ class LCSCAPIClient:
             logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f}s")
             time.sleep(sleep_time)
         self.last_request_time = time.time()
+
+    def _cache_path(self, identifier: str, extension: str = "json") -> Path:
+        """Return cache file path for the given identifier."""
+        safe_id = identifier.replace("/", "_").replace("\\", "_")
+        return self.CACHE_DIR / f"{safe_id}.{extension}"
+
+    def _cache_read(self, path: Path) -> Optional[str]:
+        """Read cached data if caching is enabled and the file exists."""
+        if not self.use_cache or not path.exists():
+            return None
+        try:
+            return path.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Cache read failed ({path}): {e}")
+            return None
+
+    def _cache_write(self, path: Path, data: str) -> None:
+        """Write data to cache if caching is enabled. Silent on failure."""
+        if not self.use_cache:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(data, encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Cache write failed ({path}): {e}")
 
     def _make_request(
         self,
@@ -305,14 +336,28 @@ class LCSCAPIClient:
         logger.info(f"Searching for component: {lcsc_id}")
 
         try:
-            # Step 1: Get EasyEDA data (for symbol/footprint)
-            url = f"https://easyeda.com/api/products/{lcsc_id}/components"
+            # Step 1: Get EasyEDA data (for symbol/footprint), from cache if available
+            cache_path = self._cache_path(f"component_{lcsc_id}")
+            cached = self._cache_read(cache_path)
+            response = None
+            if cached:
+                try:
+                    response = json.loads(cached)
+                    logger.info(f"Cache hit: {lcsc_id}")
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid cached JSON for {lcsc_id}, refetching")
+                    response = None
 
-            response = self._make_request(
-                method="GET",
-                url=url,
-                params={"version": "6.4.19.5"}
-            )
+            if response is None:
+                url = f"https://easyeda.com/api/products/{lcsc_id}/components"
+                response = self._make_request(
+                    method="GET",
+                    url=url,
+                    params={"version": "6.4.19.5"},
+                )
+                # Write successful responses to cache for next time
+                if response.get("success"):
+                    self._cache_write(cache_path, json.dumps(response))
 
             # Parse response
             if not response.get("success"):
