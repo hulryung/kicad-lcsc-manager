@@ -95,12 +95,13 @@ fi
 cp resources/icon.png "${STAGING_DIR}/resources/"
 print_success "Resources copied"
 
-# Verify icon exists in plugin resources
-if [ ! -f "plugins/lcsc_manager/resources/icon.png" ]; then
-    print_error "Plugin icon not found at plugins/lcsc_manager/resources/icon.png"
+# Verify icon exists in plugin resources (named plugin_resources/ since
+# v0.3.0 to disambiguate from the top-level resources/ used by PCM).
+if [ ! -f "plugins/lcsc_manager/plugin_resources/icon.png" ]; then
+    print_error "Plugin icon not found at plugins/lcsc_manager/plugin_resources/icon.png"
     echo "The icon must exist in both locations:"
     echo "  - resources/icon.png (for PCM display)"
-    echo "  - plugins/lcsc_manager/resources/icon.png (for toolbar)"
+    echo "  - plugins/lcsc_manager/plugin_resources/icon.png (for toolbar)"
     exit 1
 fi
 
