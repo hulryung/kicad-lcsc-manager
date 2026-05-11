@@ -2,18 +2,9 @@
 
 A KiCad plugin that allows you to search and import electronic components from LCSC/EasyEDA and JLCPCB directly into your KiCad projects, including symbols, footprints, and 3D models.
 
-> **🚀 v0.3.0 — Upstream integration (2026-04-08)**: This release incorporates significant conversion-logic fixes **ported directly from [easyeda2kicad.py v1.0.1](https://github.com/uPesy/easyeda2kicad.py)** by [uPesy](https://github.com/uPesy). Highlights:
+> **🚀 v0.5.0 — Footprint pipeline switched to upstream (2026-05-11)**: The footprint converter is now backed by a vendored copy of [easyeda2kicad.py v1.0.1](https://github.com/uPesy/easyeda2kicad.py) (see `plugins/lcsc_manager/vendor/easyeda2kicad/`), eliminating the `KicadModTree` runtime dependency. Footprints that previously fell back to a 2-pad placeholder on installs without `KicadModTree` now convert correctly. See [CHANGELOG.md](CHANGELOG.md) and [NOTICE.md](NOTICE.md) for licensing.
 >
-> - **Footprint layer mapping fixed** — 7 previously-miswired EasyEDA layers (TopAssembly/BottomAssembly/LIBBODY/etc.) now land on the correct KiCad layers instead of the wrong side of the board or the User.1/2/3 junk drawer.
-> - **Multi-unit symbol pin numbers** — gates, dual op-amps, and multi-channel drivers now get the canonical KiCad pin number from the `^^num` segment instead of the wrong `spice_pin_number`.
-> - **3D model placement** — models are XY-centered, Z bottom-aligned, and positioned at the EasyEDA `c_origin` offset (with correct Y negation and canvas-unit scaling).
-> - **Plated vias** — `h_VIA` now emits real `thru_hole` pads with `*.Cu *.Paste *.Mask`, matching upstream. Previously vias were silently dropped.
-> - **Footprint SVG path parser** — `H` and `V` commands are now handled (rectangular silkscreen outlines no longer truncate).
-> - **Pad number normalization** — `"VCC(3)"` → `"3"` for BGA/connector parts.
-> - **macOS KiCad SSL** — auto-detects KiCad's bundled `certifi` so HTTPS calls don't fail in KiCad's embedded Python.
-> - **Opt-in disk cache** for EasyEDA component JSON (off by default).
->
-> See [CHANGELOG.md](CHANGELOG.md) and the **[Credits](#credits)** section for full attribution.
+> **v0.4.0** added a Settings dialog and per-project / global library-path overrides — see the "Customizing library paths" section below.
 
 ## ✨ Features
 

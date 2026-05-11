@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-05-11
+
+Resolves [#2](https://github.com/hulryung/kicad-lcsc-manager/issues/2): footprint imports now produce correct geometry on stock KiCad installs. Previously, the converter depended on the third-party `KicadModTree` package, which ships with neither KiCad 9 nor 10; on installs without it the plugin silently fell back to a 2-pad placeholder for every component.
+
+### Changed
+- **Footprint converter** rewritten as a thin wrapper around a vendored subset of [easyeda2kicad.py v1.0.1](https://github.com/uPesy/easyeda2kicad.py). The vendored code lives under `plugins/lcsc_manager/vendor/easyeda2kicad/` and emits the `.kicad_mod` text directly via string templates. No external Python dependencies remain on the footprint path.
+
+### Removed
+- **`KicadModTree` dependency** on the footprint path. Symbol and 3D-model conversion never used it.
+- **Placeholder fallback footprint**: the 2-pad fallback that masked import failures is gone. Bad data now raises a real error instead of silently producing the wrong geometry.
+- Dead files: `plugins/lcsc_manager/converters/jlc2kicad/footprint_handlers.py`, `…/model3d.py`, and the unit test `tests/test_footprint_handlers_patches.py` (superseded by the upstream-comparison test below).
+
+### Added
+- `tests/test_footprint_matches_upstream.py` — runs both pipelines (ours and a direct upstream call) on the same EasyEDA JSON and asserts byte-for-byte equivalence after normalizing the three intentional deltas (footprint name, generator string, configurable 3D-model URI). Covers Domigome's reporter case (C2939726, 5-pad SS12D07VG4) plus a generic 0603.
+
+### Notes
+- The vendored upstream code is AGPL-3.0. See [NOTICE.md](NOTICE.md) for attribution and redistribution implications. The plugin itself remains MIT.
+- Existing post-v0.3.0 fixes that we ported into our `jlc2kicad/footprint_handlers.py` (layer mapping, h_VIA THT, SOLIDREGION filter, etc.) are all present in vendored upstream and continue to apply. Our extra `NAME(N)` → `N` pad-number normalization is preserved via a small post-processing step in the converter.
+
 ## [0.4.0] - 2026-05-11
 
 Resolves [#1](https://github.com/hulryung/kicad-lcsc-manager/issues/1): library paths are now user-customizable at two scopes (global and per-project), via a new in-plugin Settings dialog. No more editing JSON by hand to change where imports land.

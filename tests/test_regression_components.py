@@ -22,11 +22,9 @@ What this test does NOT cover end-to-end:
     Task 7 (_normalize_pad_number), or Task 8 (h_VIA as THT plated) on
     real EasyEDA footprint data.
 
-    Handler-level coverage for the footprint path lives in
-    tests/test_footprint_handlers_patches.py — that file uses a
-    KicadModTree stub and exercises each handler directly on synthetic
-    fixtures. If you need confidence that a real imported footprint is
-    correct, run the plugin inside KiCad and visually inspect the output.
+    Byte-level coverage of the footprint pipeline lives in
+    tests/test_footprint_matches_upstream.py, which diffs our converter's
+    output against upstream easyeda2kicad.py for the same component.
 """
 import sys
 import tempfile
