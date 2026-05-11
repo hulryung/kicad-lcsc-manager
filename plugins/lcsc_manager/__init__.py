@@ -7,7 +7,7 @@ directly into KiCad projects with symbols, footprints, and 3D models.
 import os
 import sys
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __author__ = "hulryung"
 __license__ = "MIT"
 

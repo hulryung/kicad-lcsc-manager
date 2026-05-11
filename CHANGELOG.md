@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-05-11
+
+Resolves [#1](https://github.com/hulryung/kicad-lcsc-manager/issues/1): library paths are now user-customizable at two scopes (global and per-project), via a new in-plugin Settings dialog. No more editing JSON by hand to change where imports land.
+
+### Added
+- **Settings dialog** reachable from the ⚙ button in the import dialog. Edits four path values — library root, symbol file name, footprint folder, 3D model folder — with live path preview, input validation, and a per-field source badge (`[global]`, `[project]`, `[default]`, `[edited]`, `[source → scope]`).
+- **Per-project overrides** via `<project>/.lcsc_manager.json`. Layered resolution: `default < global (~/.kicad/lcsc_manager/config.json) < project`. Each layer may store any subset of keys.
+- **Scope-aware preview** in the Settings dialog: Global view shows `${KIPRJMOD}/…` template paths (project-agnostic), Project view shows the resolved absolute path against the currently open project, with `✓ exists` / `(will create)` indicators.
+- **Import destination panel** in the main search dialog showing where the next import will land and which scope's settings are active (`This project only`, `Global`, `Default`, or `Project override + Global/Default for the rest`).
+- Unit tests for config layering (`test_config_layering.py`, 13 tests), lib-table URI generation (`test_library_manager_uris.py`, 3 tests), and footprint converter 3D URI plumbing (`test_footprint_converter_3d_uri.py`, 3 tests).
+
+### Fixed
+- **Hardcoded library paths**: `sym-lib-table` URI, `fp-lib-table` URI, and the 3D model reference inside generated `.kicad_mod` files were embedded as string literals (`${KIPRJMOD}/libs/lcsc/...`). They now flow from the user's config so customization actually takes effect end-to-end.
+
+### Changed
+- Global config file is no longer seeded with defaults on first run. `~/.kicad/lcsc_manager/config.json` starts empty so the Settings UI can accurately mark which keys are real user overrides vs. inherited defaults.
+
 ## [0.3.0] - 2026-04-08
 
 Major integration of fixes ported from [easyeda2kicad.py v1.0.1](https://github.com/uPesy/easyeda2kicad.py) upstream. Improves correctness for footprint layer assignment, multi-unit symbol pin numbers, 3D model placement, and via handling. Several latent bugs in the JLC2KiCad_lib fork are fixed.
