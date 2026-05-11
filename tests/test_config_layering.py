@@ -168,6 +168,41 @@ def test_resolve_for_scope_view_project_inherits_global():
     print("test_resolve_for_scope_view_project_inherits_global: PASS")
 
 
+def test_active_scope_summary():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+
+        # Nothing overridden anywhere → default
+        cfg = _make_config({}, tmp, None)
+        assert cfg.get_active_scope_summary() == "default"
+
+        # Only global override → global
+        cfg = _make_config({"library_path": "x"}, tmp, None)
+        assert cfg.get_active_scope_summary() == "global"
+
+        # All path keys overridden at project → project
+        cfg = _make_config(
+            {},
+            tmp,
+            {
+                "library_path": "p",
+                "symbol_lib_name": "s.kicad_sym",
+                "footprint_lib_name": "f.pretty",
+                "model_3d_path": "m",
+            },
+        )
+        assert cfg.get_active_scope_summary() == "project"
+
+        # Project overrides one key, others inherit → mixed
+        cfg = _make_config(
+            {"library_path": "g"},
+            tmp,
+            {"symbol_lib_name": "s.kicad_sym"},
+        )
+        assert cfg.get_active_scope_summary() == "mixed"
+    print("test_active_scope_summary: PASS")
+
+
 def test_kiprjmod_uris_reflect_config():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -200,5 +235,6 @@ if __name__ == "__main__":
     test_resolve_for_scope_view_global_ignores_project()
     test_resolve_for_scope_view_falls_through_to_default()
     test_resolve_for_scope_view_project_inherits_global()
+    test_active_scope_summary()
     test_kiprjmod_uris_reflect_config()
     print("\nAll config layering tests passed.")

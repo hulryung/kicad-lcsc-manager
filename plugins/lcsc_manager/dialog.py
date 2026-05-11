@@ -395,9 +395,19 @@ class LCSCManagerDialog(wx.Dialog):
         self._refresh_lib_info()
 
     def _refresh_lib_info(self):
-        """Update the 'Components will be saved to: …' label."""
+        """Update the 'Components will be saved to: …' label, including
+        which scope's settings are active."""
         lib_path = self.config.get_library_path(self.project_path)
-        self.lib_info.SetLabel(f"Components will be saved to: {lib_path}")
+        summary = self.config.get_active_scope_summary()
+        scope_text = {
+            "project": "this project only",
+            "mixed":   "project + global",
+            "global":  "global settings",
+            "default": "default settings",
+        }[summary]
+        self.lib_info.SetLabel(
+            f"Components will be saved to: {lib_path}  (source: {scope_text})"
+        )
         self.Layout()
 
     def _on_import(self, event):

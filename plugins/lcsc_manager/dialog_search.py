@@ -106,6 +106,31 @@ class LCSCManagerSearchDialog(wx.Dialog):
         options_panel = self._create_import_options_panel()
         main_sizer.Add(options_panel, 0, wx.EXPAND | wx.ALL, 10)
 
+        # Destination summary: where this import will land + which scope's
+        # settings are active. Kept as instance attrs so Settings can
+        # trigger a refresh after save.
+        dest_box = wx.StaticBox(self, label="Import destination")
+        dest_sizer = wx.StaticBoxSizer(dest_box, wx.VERTICAL)
+
+        path_row = wx.BoxSizer(wx.HORIZONTAL)
+        path_row.Add(wx.StaticText(self, label="Saving to: "), 0,
+                     wx.ALIGN_CENTER_VERTICAL)
+        self.dest_path_label = wx.StaticText(self, label="")
+        path_row.Add(self.dest_path_label, 1,
+                     wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 4)
+        dest_sizer.Add(path_row, 0, wx.EXPAND | wx.ALL, 4)
+
+        scope_row = wx.BoxSizer(wx.HORIZONTAL)
+        scope_row.Add(wx.StaticText(self, label="Settings source: "), 0,
+                      wx.ALIGN_CENTER_VERTICAL)
+        self.dest_scope_label = wx.StaticText(self, label="")
+        scope_row.Add(self.dest_scope_label, 0,
+                      wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 4)
+        dest_sizer.Add(scope_row, 0, wx.EXPAND | wx.ALL, 4)
+
+        main_sizer.Add(dest_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        self._refresh_destination()
+
         # Bottom row: ⚙ Settings on the left, OK/Cancel on the right.
         button_row = wx.BoxSizer(wx.HORIZONTAL)
         settings_btn = wx.Button(self, label="⚙ Settings…")
@@ -774,6 +799,27 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # paths and the footprint converter's 3D URI reflect the new config.
         self.config.load_project_overrides(self.project_path)
         self.library_manager = LibraryManager(self.project_path)
+        self._refresh_destination()
+
+    def _refresh_destination(self):
+        """Update the 'Import destination' panel labels."""
+        lib_root = self.config.get_library_path(self.project_path)
+        self.dest_path_label.SetLabel(str(lib_root))
+
+        summary = self.config.get_active_scope_summary()
+        scope_text, scope_color = {
+            "project": ("This project only (.lcsc_manager.json)",
+                        wx.Colour(0, 110, 0)),
+            "mixed":   ("Project override + Global/Default for the rest",
+                        wx.Colour(0, 110, 0)),
+            "global":  ("Global (~/.kicad/lcsc_manager/config.json)",
+                        wx.Colour(20, 80, 160)),
+            "default": ("Default (no customization)",
+                        wx.Colour(120, 120, 120)),
+        }[summary]
+        self.dest_scope_label.SetLabel(scope_text)
+        self.dest_scope_label.SetForegroundColour(scope_color)
+        self.Layout()
 
     def _on_import(self, event):
         """Handle import button click - runs fetch+import in background thread"""

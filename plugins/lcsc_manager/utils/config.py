@@ -193,6 +193,30 @@ class Config:
             return "global"
         return "default"
 
+    def get_active_scope_summary(self) -> str:
+        """
+        Summarise where the effective path-config comes from across all
+        PATH_KEYS. Returns one of:
+
+            "project" — every path key is overridden at project scope
+            "global"  — every path key is overridden at global scope
+                        (and none at project)
+            "default" — no overrides anywhere; pure defaults
+            "mixed"   — at least one project override AND at least one
+                        key still inherited from a lower layer (global
+                        or default)
+
+        Useful for one-line UI hints like "Saving with project settings".
+        """
+        sources = {self.get_value_source(k) for k in PATH_KEYS}
+        if sources == {"project"}:
+            return "project"
+        if "project" in sources:
+            return "mixed"
+        if "global" in sources:
+            return "global"
+        return "default"
+
     def resolve_for_scope_view(self, key: str, scope: str) -> tuple:
         """
         What to display when editing `scope`. Returns (value, source).
