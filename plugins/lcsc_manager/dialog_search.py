@@ -13,6 +13,7 @@ from pathlib import Path
 from .api.lcsc_api import get_api_client, LCSCAPIError
 from .library.library_manager import LibraryManager
 from .utils.logger import get_logger
+from .utils.config import get_config
 
 logger = get_logger()
 
@@ -35,6 +36,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         )
 
         self.project_path = Path(project_path)
+        self.config = get_config()
+        self.config.load_project_overrides(self.project_path)
         self.api_client = get_api_client()
         self.library_manager = LibraryManager(self.project_path)
 
@@ -103,13 +106,20 @@ class LCSCManagerSearchDialog(wx.Dialog):
         options_panel = self._create_import_options_panel()
         main_sizer.Add(options_panel, 0, wx.EXPAND | wx.ALL, 10)
 
-        # Buttons
+        # Bottom row: ⚙ Settings on the left, OK/Cancel on the right.
+        button_row = wx.BoxSizer(wx.HORIZONTAL)
+        settings_btn = wx.Button(self, label="⚙ Settings…")
+        settings_btn.Bind(wx.EVT_BUTTON, self._on_settings)
+        button_row.Add(settings_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        button_row.AddStretchSpacer()
+
         button_sizer = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         import_btn = wx.FindWindowById(wx.ID_OK, self)
         import_btn.SetLabel("Import Selected")
         import_btn.Bind(wx.EVT_BUTTON, self._on_import)
+        button_row.Add(button_sizer, 0, wx.RIGHT, 10)
 
-        main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 10)
+        main_sizer.Add(button_row, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 10)
 
         self.SetSizer(main_sizer)
 
@@ -751,6 +761,19 @@ class LCSCManagerSearchDialog(wx.Dialog):
     def _update_specs(self, specs_text: str):
         """Update only the specifications text (called when component data finishes loading)"""
         self.specs_text.SetValue(specs_text)
+
+    def _on_settings(self, event):
+        """Open the LCSC Manager settings dialog."""
+        from .dialog_settings import SettingsDialog
+        dlg = SettingsDialog(self, self.config, self.project_path)
+        try:
+            dlg.ShowModal()
+        finally:
+            dlg.Destroy()
+        # Re-read overrides and rebuild the library manager so its cached
+        # paths and the footprint converter's 3D URI reflect the new config.
+        self.config.load_project_overrides(self.project_path)
+        self.library_manager = LibraryManager(self.project_path)
 
     def _on_import(self, event):
         """Handle import button click - runs fetch+import in background thread"""

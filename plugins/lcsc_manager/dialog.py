@@ -125,6 +125,7 @@ class LCSCManagerDialog(wx.Dialog):
 
         self.project_path = project_path
         self.config = get_config()
+        self.config.load_project_overrides(project_path)
         self.api_client = get_api_client()
         self.library_manager = LibraryManager(project_path)
 
@@ -217,16 +218,21 @@ class LCSCManagerDialog(wx.Dialog):
         main_sizer.Add(options_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
         main_sizer.AddSpacer(10)
 
-        # Library path info
-        lib_path = self.config.get_library_path(self.project_path)
-        lib_info = wx.StaticText(
-            self,
-            label=f"Components will be saved to: {lib_path}"
-        )
-        lib_info.SetForegroundColour(wx.Colour(100, 100, 100))
-        main_sizer.Add(lib_info, 0, wx.ALL | wx.EXPAND, 10)
+        # Library path info — kept as an instance attr so we can refresh
+        # the label after the Settings dialog mutates the config.
+        self.lib_info = wx.StaticText(self, label="")
+        self.lib_info.SetForegroundColour(wx.Colour(100, 100, 100))
+        self._refresh_lib_info()
+        main_sizer.Add(self.lib_info, 0, wx.ALL | wx.EXPAND, 10)
 
-        # Buttons
+        # Buttons row: Settings on the left, OK/Cancel on the right.
+        button_row = wx.BoxSizer(wx.HORIZONTAL)
+
+        settings_btn = wx.Button(self, label="⚙ Settings…")
+        settings_btn.Bind(wx.EVT_BUTTON, self._on_settings)
+        button_row.Add(settings_btn, 0, wx.ALIGN_CENTER_VERTICAL)
+        button_row.AddStretchSpacer()
+
         button_sizer = wx.StdDialogButtonSizer()
 
         import_btn = wx.Button(self, wx.ID_OK, "Import")
@@ -237,7 +243,8 @@ class LCSCManagerDialog(wx.Dialog):
         button_sizer.AddButton(cancel_btn)
 
         button_sizer.Realize()
-        main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 10)
+        button_row.Add(button_sizer, 0)
+        main_sizer.Add(button_row, 0, wx.EXPAND | wx.ALL, 10)
 
         self.SetSizer(main_sizer)
         self.Layout()
@@ -370,6 +377,28 @@ class LCSCManagerDialog(wx.Dialog):
                 wx.OK | wx.ICON_ERROR
             )
             self.info_text.SetValue("Search failed with unexpected error.")
+
+    def _on_settings(self, event):
+        """Open the LCSC Manager settings dialog."""
+        # Local import to avoid wx import at module load time during tests
+        from .dialog_settings import SettingsDialog
+        dlg = SettingsDialog(self, self.config, self.project_path)
+        try:
+            dlg.ShowModal()
+        finally:
+            dlg.Destroy()
+        # Re-resolve paths in case the user changed them so the next import
+        # check / library write uses fresh values. Rebuild library_manager
+        # too — its cached paths and footprint-converter URI are stale.
+        self.config.load_project_overrides(self.project_path)
+        self.library_manager = LibraryManager(self.project_path)
+        self._refresh_lib_info()
+
+    def _refresh_lib_info(self):
+        """Update the 'Components will be saved to: …' label."""
+        lib_path = self.config.get_library_path(self.project_path)
+        self.lib_info.SetLabel(f"Components will be saved to: {lib_path}")
+        self.Layout()
 
     def _on_import(self, event):
         """Handle import button click"""
@@ -558,7 +587,11 @@ class LCSCManagerDialog(wx.Dialog):
         Returns:
             Dictionary with exists flags for symbol, footprint, 3d_model
         """
-        lib_path = self.config.get_library_path(self.project_path)
+        self.config.load_project_overrides(self.project_path)
+        symbol_file = self.config.get_symbol_lib_path(self.project_path)
+        footprint_dir = self.config.get_footprint_lib_path(self.project_path)
+        model_dir = self.config.get_3d_model_path(self.project_path)
+
         lcsc_id = component_info.get("lcsc_id", "")
         package = component_info.get("package", "Unknown")
         symbol_name = component_info.get("description", component_info.get("name", ""))
@@ -571,7 +604,6 @@ class LCSCManagerDialog(wx.Dialog):
         }
 
         # Check symbol - need to parse the library file
-        symbol_file = lib_path / "symbols" / "lcsc_imported.kicad_sym"
         if symbol_file.exists():
             try:
                 # Check file size to avoid reading huge files into memory
@@ -603,11 +635,10 @@ class LCSCManagerDialog(wx.Dialog):
                           .replace(":", "{colon}")
                           .replace('"', "{dblquote}"))
         footprint_name = f"{lcsc_id}_{footprint_name}"
-        footprint_file = lib_path / "footprints.pretty" / f"{footprint_name}.kicad_mod"
+        footprint_file = footprint_dir / f"{footprint_name}.kicad_mod"
         exists["footprint"] = footprint_file.exists()
 
         # Check 3D models - separate files
-        model_dir = lib_path / "3dmodels"
         exists["3d_wrl"] = (model_dir / f"{lcsc_id}.wrl").exists()
         exists["3d_step"] = (model_dir / f"{lcsc_id}.step").exists()
 

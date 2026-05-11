@@ -44,9 +44,18 @@ class FootprintInfo:
 class FootprintConverter:
     """Converter for EasyEDA footprints to KiCad format"""
 
-    def __init__(self):
-        """Initialize footprint converter"""
+    def __init__(self, model_uri_base: str = "${KIPRJMOD}/libs/lcsc/3dmodels"):
+        """
+        Initialize footprint converter.
+
+        Args:
+            model_uri_base: URI prefix used for 3D model references inside
+                            generated .kicad_mod files. Trailing slash is
+                            stripped. Defaults to the historical hardcoded
+                            value so callers that don't pass it still work.
+        """
         self.logger = get_logger("footprint_converter")
+        self.model_uri_base = model_uri_base.rstrip("/")
 
     def convert(
         self,
@@ -216,7 +225,7 @@ class FootprintConverter:
             # - Includes color information
             # - KiCad native format
             # STEP file is also downloaded for MCAD export but not referenced in footprint
-            wrl_path = f"${{KIPRJMOD}}/libs/lcsc/3dmodels/{lcsc_id}.wrl"
+            wrl_path = f"{self.model_uri_base}/{lcsc_id}.wrl"
             kicad_mod.append(
                 Model(
                     filename=wrl_path,
@@ -300,7 +309,7 @@ class FootprintConverter:
   (fp_rect (start -1.2 -0.8) (end 1.2 0.8) (layer "F.Fab") (width 0.1) (fill none))
   (pad "1" smd rect (at -1 0) (size 0.8 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
   (pad "2" smd rect (at 1 0) (size 0.8 1.2) (layers "F.Cu" "F.Paste" "F.Mask"))
-  (model "${{KIPRJMOD}}/libs/lcsc/3dmodels/{lcsc_id}.wrl"
+  (model "{self.model_uri_base}/{lcsc_id}.wrl"
     (offset (xyz 0 0 0))
     (scale (xyz 1 1 1))
     (rotate (xyz 0 0 0))

@@ -145,10 +145,35 @@ A KiCad plugin that allows you to search and import electronic components from L
 
 7. **Click "Import Selected"** to add the component to your project
 
-8. **Find imported components** in your project libraries:
+8. **Find imported components** in your project libraries (default paths):
    - Symbol: `<project>/libs/lcsc/symbols/lcsc_imported.kicad_sym`
    - Footprint: `<project>/libs/lcsc/footprints.pretty/`
    - 3D Models: `<project>/libs/lcsc/3dmodels/`
+
+### Customizing library paths
+
+Click the **⚙ Settings…** button in the import dialog to change where LCSC
+components are stored. Four values are configurable:
+
+| Field | Default | Purpose |
+| --- | --- | --- |
+| `library_path` | `libs/lcsc` | Root folder relative to the project |
+| `symbol_lib_name` | `lcsc_imported.kicad_sym` | Symbol library filename |
+| `footprint_lib_name` | `footprints.pretty` | Footprint library folder |
+| `model_3d_path` | `3dmodels` | 3D model folder |
+
+Settings can be saved at one of two scopes:
+
+- **Global** — `~/.kicad/lcsc_manager/config.json`. Applies to every project
+  unless overridden.
+- **This project only** — `<project>/.lcsc_manager.json`. Overrides the
+  global config for that project. Commit this file if you want the layout
+  shared with your team, or add it to `.gitignore` if it's personal.
+
+Resolution order is `default < global < project`. The Settings dialog shows a
+live preview of the resolved absolute paths and indicates which scope each
+value comes from. Changes apply to *future* imports only — existing libraries
+are not moved automatically.
 
 ### Tips
 

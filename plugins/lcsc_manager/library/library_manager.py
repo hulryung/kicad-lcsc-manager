@@ -36,16 +36,23 @@ class LibraryManager:
         self.config = get_config()
         self.logger = get_logger("library_manager")
 
-        # Initialize converters
-        self.symbol_converter = SymbolConverter()
-        self.footprint_converter = FootprintConverter()
-        self.model_3d_converter = Model3DConverter()
+        # Load any project-scope config overrides before computing paths
+        self.config.load_project_overrides(project_path)
 
         # Get library paths
         self.lib_base_path = self.config.get_library_path(project_path)
         self.symbol_lib_path = self.config.get_symbol_lib_path(project_path)
         self.footprint_lib_path = self.config.get_footprint_lib_path(project_path)
         self.model_3d_path = self.config.get_3d_model_path(project_path)
+
+        # Initialize converters. FootprintConverter needs the 3D-model URI
+        # base so the generated .kicad_mod references stay in sync with
+        # whatever library path the user configured.
+        self.symbol_converter = SymbolConverter()
+        self.footprint_converter = FootprintConverter(
+            model_uri_base=self.config.get_kiprjmod_uris()["model_3d_dir"]
+        )
+        self.model_3d_converter = Model3DConverter()
 
     def import_component(
         self,
@@ -294,7 +301,7 @@ class LibraryManager:
         lib_table_path = self.project_path.parent / "sym-lib-table"
 
         lib_name = self.config.get("symbol_lib_nickname")
-        lib_path = "${KIPRJMOD}/libs/lcsc/symbols/lcsc_imported.kicad_sym"
+        lib_path = self.config.get_kiprjmod_uris()["symbol_lib"]
 
         try:
             # Check if library table exists
@@ -342,7 +349,7 @@ class LibraryManager:
             Notification message if user action is needed, None otherwise
         """
         lib_name = self.config.get("footprint_lib_nickname")
-        lib_uri = "${KIPRJMOD}/libs/lcsc/footprints.pretty"
+        lib_uri = self.config.get_kiprjmod_uris()["footprint_lib"]
 
         # Try pcbnew API first (updates in-memory, immediately available)
         if HAS_PCBNEW:
