@@ -63,6 +63,16 @@ class FootprintConverter:
         # path layout keep working.
         ee_footprint.info.name = self._get_footprint_name(component_info)
 
+        # Align the 3D model reference with the file Model3DConverter actually
+        # writes to disk: "<lcsc_id>.wrl" / "<lcsc_id>.step". Upstream names the
+        # reference after the EasyEDA model title (e.g. "DP9-TH_ZHOUR_DP-9P"),
+        # which never matches our filename and leaves KiCad unable to find the
+        # model (issue #5). Sharing the lcsc_id basename also lets KiCad's STEP
+        # exporter locate the sibling .step. Must run before the exporter is
+        # constructed — it copies model_3d.name into its output in __init__.
+        if ee_footprint.model_3d is not None:
+            ee_footprint.model_3d.name = lcsc_id
+
         exporter = ExporterFootprintKicad(footprint=ee_footprint)
 
         # Upstream's export() writes to disk. Round-trip through a

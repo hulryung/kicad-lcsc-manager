@@ -63,6 +63,9 @@ def _normalize_for_diff(text: str) -> str:
       - The opening `(module …)` line names a different package_lib and
         package_name (we use our LCSC_ID_PACKAGE scheme).
       - The `(fp_text value …)` line repeats the same package_name.
+      - The `(model …)` reference: upstream names the 3D model after the
+        EasyEDA model title; we rename it to "<lcsc_id>.wrl" to match the
+        file Model3DConverter writes to disk (issue #5).
     """
     text = re.sub(
         r"\(module\s+\S+\s+\(layer\s+F\.Cu\)\s+\(tedit\s+\S+\)",
@@ -72,6 +75,11 @@ def _normalize_for_diff(text: str) -> str:
     text = re.sub(
         r"\(fp_text value\s+\S+\s+",
         "(fp_text value <NORMALIZED> ",
+        text,
+    )
+    text = re.sub(
+        r'\(model\s+"[^"]*"',
+        '(model <NORMALIZED>',
         text,
     )
     # Pad numbers: we normalize "VCC(3)" → "3"; tolerate either form when
