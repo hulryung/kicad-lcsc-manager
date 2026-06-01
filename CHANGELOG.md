@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-06-01
+
+Resolves [#5](https://github.com/hulryung/kicad-lcsc-manager/issues/5) (3D models not linked to footprints) and addresses [#7](https://github.com/hulryung/kicad-lcsc-manager/issues/7) (macOS install friction and confusing search errors).
+
+### Fixed
+- **3D model reference now matches the file on disk** ([#5](https://github.com/hulryung/kicad-lcsc-manager/issues/5)). The generated `.kicad_mod` referenced the EasyEDA model *title* (e.g. `DP9-TH_ZHOUR_DP-9P.wrl`), but the model is saved as `<lcsc_id>.wrl` / `<lcsc_id>.step`, so KiCad couldn't find it and users had to fix the path by hand. The footprint converter now overrides the 3D model name to the LCSC id before export. Sharing the `<lcsc_id>` basename also lets KiCad's STEP exporter locate the sibling `.step`. Regression introduced in 0.5.0 by the switch to vendored upstream `easyeda2kicad`.
+- **Confusing "not found in EasyEDA database" message** ([#7](https://github.com/hulryung/kicad-lcsc-manager/issues/7)). Transient API rate-limiting and a part that genuinely has no EasyEDA CAD model were reported identically. They're now distinguished: rate-limiting shows *"EasyEDA is rate-limiting requests — wait a few seconds and click the component again,"* while a missing part says it *"has no symbol/footprint in EasyEDA's library, so it can't be imported."*
+
+### Added
+- **`LCSCRateLimitError`** (subclass of `LCSCAPIError`), raised when HTTP 403/429 retries are exhausted; HTTP 429 is now treated as rate-limiting alongside 403. `search_component` preserves typed API errors instead of flattening them, so the UI can react to rate-limiting specifically.
+- `tests/test_api_error_classification.py` — offline, mocked coverage for the rate-limit subclass, persistent-403 raising, type preservation through `search_component`, and genuinely-missing parts returning `None`.
+
+### Documentation
+- **Install instructions** ([#7](https://github.com/hulryung/kicad-lcsc-manager/issues/7)): Method 1 rewritten with where to find the Plugin and Content Manager on macOS (the main KiCad launcher window, not always under *Tools*), the repository-dropdown step, **Apply Pending Changes**, and full restart / reboot guidance.
+- **Usage callout** that the plugin runs in the **PCB Editor** only — KiCad's Python action-plugin API is pcbnew-only, so **Search and Import** isn't available from the Schematic Editor. Imported symbols are still added to the project's symbol library and remain available in the schematic.
+
+### Notes
+- The 3D-model URI is now an explicit allowed delta in `tests/test_footprint_matches_upstream.py` (we rename the reference to `<lcsc_id>.wrl`; upstream uses the title).
+
 ## [0.5.0] - 2026-05-11
 
 Resolves [#2](https://github.com/hulryung/kicad-lcsc-manager/issues/2): footprint imports now produce correct geometry on stock KiCad installs. Previously, the converter depended on the third-party `KicadModTree` package, which ships with neither KiCad 9 nor 10; on installs without it the plugin silently fell back to a 2-pad placeholder for every component.
