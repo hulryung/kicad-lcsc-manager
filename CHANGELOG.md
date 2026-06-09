@@ -5,10 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.2] - 2026-06-09
+
+Resolves [#8](https://github.com/hulryung/kicad-lcsc-manager/issues/8): multi-unit symbols (parts whose schematic symbol is split across several pieces) failed to import.
 
 ### Fixed
-- **Multi-unit symbols now import every unit.** Parts whose schematic symbol is split across several units/gates (e.g. C3216634 / MIMXRT685SFVKB) imported as an empty symbol. EasyEDA delivers each unit as an entry in `subparts` and leaves the top-level `dataStr.shape` empty, but the symbol converter only read the top-level shape. It now emits one KiCad sub-symbol (`<name>_<unit>_1`) per unit, using the shared canvas origin so units stay aligned. Single-unit parts are unchanged; a part with no drawable geometry anywhere still falls back to the placeholder symbol.
+- **Multi-unit symbols now import every unit** ([#8](https://github.com/hulryung/kicad-lcsc-manager/issues/8)). Parts whose schematic symbol is split across several units/gates (e.g. C3216634 / MIMXRT685SFVKB) imported as an empty symbol. EasyEDA delivers each unit as an entry in `subparts` and leaves the top-level `dataStr.shape` empty, but the symbol converter only read the top-level shape. It now emits one KiCad sub-symbol (`<name>_<unit>_1`) per unit, using the shared canvas origin so units stay aligned. Single-unit parts are unchanged; a part with no drawable geometry anywhere still falls back to the placeholder symbol.
 
 ### Added
 - `tests/test_symbol_multi_unit.py` — offline coverage for multi-unit fan-out (one sub-symbol per unit, all pins preserved), single-unit no-regression, and the empty-geometry placeholder fallback.
