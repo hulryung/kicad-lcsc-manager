@@ -84,11 +84,29 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
             project_path: Path to the current KiCad project
         """
         try:
-            # Try to import advanced search dialog first
+            # Try to import advanced search dialog first. Catch any
+            # import-time failure, not just ImportError: e.g. a missing
+            # wx.html2 raises ImportError, but a bundled dependency that is
+            # incompatible with KiCad's Python raises TypeError instead —
+            # both should degrade gracefully rather than error out.
+            advanced_dialog_cls = None
             try:
                 from .dialog_search import LCSCManagerSearchDialog
-                # Create and show advanced search dialog
-                dialog = LCSCManagerSearchDialog(None, str(project_path))
+                advanced_dialog_cls = LCSCManagerSearchDialog
+            except Exception as e:
+                logger.warning(f"Advanced search dialog not available: {e!r}")
+                logger.info("Falling back to simple dialog")
+                # Tell the user *in the GUI* why they only get the basic
+                # dialog and how to fix it — a console-only warning is
+                # invisible when KiCad is launched from a desktop menu
+                # (issues #6, #14). Shown once per KiCad session.
+                self._notify_degraded_mode(e)
+
+            if advanced_dialog_cls is not None:
+                # Create and show advanced search dialog. Runtime errors here
+                # are NOT swallowed into the fallback — they propagate to the
+                # outer handler like before.
+                dialog = advanced_dialog_cls(None, str(project_path))
                 try:
                     result = dialog.ShowModal()
 
@@ -99,12 +117,17 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
                 finally:
                     dialog.Destroy()
                 return
-            except ImportError as e:
-                logger.warning(f"Advanced search dialog not available (missing Pillow?): {e}")
-                logger.info("Falling back to simple dialog")
 
-            # Fallback to basic dialog
-            from .dialog import LCSCManagerDialog
+            # Fallback to basic dialog. Its import shares modules with the
+            # advanced dialog (api client → bundled requests), so it can fail
+            # for the same non-ImportError reasons — degrade to the last-
+            # resort prompt instead of dead-ending in the generic handler.
+            try:
+                from .dialog import LCSCManagerDialog
+            except Exception as e:
+                logger.error(f"Basic dialog not available either: {e!r}")
+                self._show_simple_dialog(project_path)
+                return
 
             # Create and show dialog
             dialog = LCSCManagerDialog(None, project_path)
@@ -125,6 +148,26 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
         except Exception as e:
             logger.error(f"Dialog error: {e}", exc_info=True)
             self._show_error(f"Dialog error: {str(e)}")
+
+    # Class-level so the notice appears once per KiCad session, not on
+    # every plugin launch.
+    _degraded_notice_shown = False
+
+    def _notify_degraded_mode(self, exc: BaseException):
+        """Show a GUI notice explaining why the advanced dialog is unavailable."""
+        if LCSCManagerPlugin._degraded_notice_shown:
+            return
+        LCSCManagerPlugin._degraded_notice_shown = True
+        try:
+            from .utils.deps import describe_dialog_import_error
+            wx.MessageBox(
+                describe_dialog_import_error(exc),
+                "LCSC Manager — Limited Mode",
+                wx.OK | wx.ICON_WARNING
+            )
+        except Exception as e:
+            # Never let the notice itself break the fallback path.
+            logger.error(f"Failed to show degraded-mode notice: {e}")
 
     def _show_simple_dialog(self, project_path: Path):
         """
@@ -180,24 +223,42 @@ class LCSCManagerPlugin(pcbnew.ActionPlugin):
 
             progress.Update(10, "Fetching component data...")
 
-            # TODO: Implement actual import logic
-            # This will be implemented in Phase 2 and 3
+            # Real import via the same path the dialogs use. Imported lazily:
+            # this last-resort prompt is typically reached because imports
+            # are broken, so failures here must be reported, not faked.
+            from .api.lcsc_api import get_api_client
+            from .library.library_manager import LibraryManager
+
+            component = get_api_client().search_component(lcsc_id)
+            if not component or not component.get("easyeda_data"):
+                progress.Destroy()
+                self._show_error(
+                    f"{lcsc_id} has no symbol/footprint in EasyEDA's library, "
+                    f"so it can't be imported (the part may still exist in "
+                    f"the LCSC catalog)."
+                )
+                return
 
             progress.Update(50, "Converting component...")
-            progress.Update(90, "Adding to library...")
-            progress.Update(100, "Done!")
-
-            progress.Destroy()
-
-            # Show success message
-            wx.MessageBox(
-                f"Component {lcsc_id} imported successfully!\n\n"
-                f"Library location:\n{project_path.parent / 'libs' / 'lcsc'}",
-                "Success",
-                wx.OK | wx.ICON_INFORMATION
+            results = LibraryManager(project_path).import_component(
+                easyeda_data=component["easyeda_data"],
+                component_info=component,
             )
 
-            logger.info(f"Component {lcsc_id} imported successfully")
+            progress.Update(100, "Done!")
+            progress.Destroy()
+
+            if results.get("success"):
+                wx.MessageBox(
+                    f"Component {lcsc_id} imported successfully!\n\n"
+                    f"Library location:\n{project_path.parent / 'libs' / 'lcsc'}",
+                    "Success",
+                    wx.OK | wx.ICON_INFORMATION
+                )
+                logger.info(f"Component {lcsc_id} imported successfully")
+            else:
+                errors = "\n".join(results.get("errors", ["Unknown error"]))
+                self._show_error(f"Import failed:\n\n{errors}")
 
         except Exception as e:
             logger.error(f"Import failed: {e}", exc_info=True)

@@ -106,6 +106,21 @@ A KiCad plugin that allows you to search and import electronic components from L
    pip3 install --user requests pydantic
    ```
 
+   **Linux only — WebView backend for the full search dialog.** Most distros
+   ship wxPython's WebView component as a separate system package. Without it
+   the full search dialog still works, but component previews are disabled
+   (older plugin versions fell back to a basic dialog entirely):
+
+   ```bash
+   # Debian / Ubuntu
+   sudo apt install python3-wxgtk-webview4.0
+
+   # Fedora
+   sudo dnf install python3-wxpython4-webview
+
+   # Arch: python-wxpython bundles WebView; make sure webkit2gtk is installed
+   ```
+
 4. **Restart KiCad completely**
 
 5. **Verify installation**
@@ -243,6 +258,10 @@ Alternatively, manually remove:
 - **Python packages**:
   - `requests>=2.31.0` - For API calls
   - `pydantic>=2.5.0` - For data validation
+- **Linux only**: the wxPython **WebView** backend for component previews
+  (Debian/Ubuntu: `python3-wxgtk-webview4.0`, Fedora:
+  `python3-wxpython4-webview`). Optional — without it the search dialog works
+  but previews show a placeholder.
 - **Internet connection**: Required for downloading components from LCSC/JLCPCB
 
 ## Development
@@ -362,6 +381,19 @@ This plugin is primarily developed and tested with KiCad 9.0. It may work with K
 ### The previews are not showing. What should I do?
 
 Previews are fetched directly from EasyEDA's SVG API and displayed in a WebView. Make sure you have an internet connection. If a component has no preview data on EasyEDA, a placeholder message will be shown.
+
+On **Linux**, if the preview tabs say the WebView backend is missing, install
+your distro's wxPython WebView package and restart KiCad — Debian/Ubuntu:
+`sudo apt install python3-wxgtk-webview4.0`, Fedora:
+`sudo dnf install python3-wxpython4-webview` (see issues #6 and #14).
+
+### The search dialog only has an "LCSC Part Number" field (no keyword search)?
+
+You're seeing the basic fallback dialog: the full search dialog failed to
+load. In current versions a popup explains exactly why (typically a missing
+Python package) and how to fix it. On Linux the usual cause used to be the
+missing WebView package above — in current versions that no longer disables
+the full dialog, only the previews.
 
 ### Can I search for components without LCSC part numbers?
 

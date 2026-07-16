@@ -1,12 +1,14 @@
 """
 GUI Dialog for LCSC Manager Plugin
 """
+import threading
+
 import wx
 from pathlib import Path
 from typing import Optional, Dict, Any
 from .utils.logger import get_logger
 from .utils.config import get_config
-from .api.lcsc_api import get_api_client, LCSCAPIError
+from .api.lcsc_api import get_api_client, LCSCAPIError, LCSCRateLimitError
 from .library.library_manager import LibraryManager
 
 logger = get_logger()
@@ -131,6 +133,10 @@ class LCSCManagerDialog(wx.Dialog):
 
         # Store component data from search
         self.component_data: Optional[Dict[str, Any]] = None
+
+        # Sequence number for background JLCPCB existence checks; bumped on
+        # every search so a stale check can't overwrite newer results.
+        self._jlcpcb_check_seq = 0
 
         self._create_ui()
         self.Centre()
@@ -278,6 +284,10 @@ class LCSCManagerDialog(wx.Dialog):
 
         logger.info(f"Searching for component: {lcsc_id}")
 
+        # Invalidate any in-flight JLCPCB existence check from a previous
+        # search so its (late) result can't overwrite this search's output.
+        self._jlcpcb_check_seq += 1
+
         # Show searching message
         self.info_text.SetValue(f"Searching for {lcsc_id}...")
         wx.GetApp().Yield()  # Update UI
@@ -346,13 +356,27 @@ class LCSCManagerDialog(wx.Dialog):
 
             else:
                 self.component_data = None
+                # No EasyEDA CAD data — but that doesn't mean the part
+                # doesn't exist. Check the JLCPCB catalog so we don't
+                # mislead the user into re-checking the part number /
+                # their connection for a real part (issue #14). The lookup
+                # runs on a background thread: the shared client's rate
+                # limiter can sleep several seconds, which would otherwise
+                # freeze all of pcbnew.
                 self.info_text.SetValue(
-                    f"Component {lcsc_id} not found.\n\n"
-                    f"Please check:\n"
-                    f"- The part number is correct\n"
-                    f"- The component exists in LCSC database\n"
-                    f"- Your internet connection is working"
+                    f"{lcsc_id} has no EasyEDA data. Checking JLCPCB catalog..."
                 )
+                self._start_jlcpcb_check(lcsc_id)
+
+        except LCSCRateLimitError as e:
+            # Transient throttling, not a missing part — calm guidance
+            # instead of a scary error box (mirrors the advanced dialog).
+            self.component_data = None
+            logger.warning(f"Rate limited searching {lcsc_id}: {e}")
+            self.info_text.SetValue(
+                "EasyEDA is rate-limiting requests right now.\n\n"
+                "Wait a few seconds, then click Search again."
+            )
 
         except LCSCAPIError as e:
             self.component_data = None
@@ -377,6 +401,79 @@ class LCSCManagerDialog(wx.Dialog):
                 wx.OK | wx.ICON_ERROR
             )
             self.info_text.SetValue("Search failed with unexpected error.")
+
+    def _start_jlcpcb_check(self, lcsc_id: str):
+        """Check the JLCPCB catalog on a background thread and report whether
+        the part exists (issue #14). Never blocks the GUI thread."""
+        self._jlcpcb_check_seq += 1
+        seq = self._jlcpcb_check_seq
+
+        def worker():
+            try:
+                # swallow_errors=False: a failed lookup must NOT be shown as
+                # "part does not exist".
+                info = self.api_client.get_jlcpcb_info(
+                    lcsc_id, swallow_errors=False)
+                outcome = ("exists", info) if info else ("not_found", None)
+            except LCSCRateLimitError:
+                outcome = ("rate_limited", None)
+            except Exception as e:
+                outcome = ("error", str(e))
+            wx.CallAfter(self._on_jlcpcb_check_done, seq, lcsc_id, outcome)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_jlcpcb_check_done(self, seq, lcsc_id, outcome):
+        """Render the JLCPCB existence-check result (GUI thread)."""
+        if seq != self._jlcpcb_check_seq:
+            return  # superseded by a newer search
+
+        kind, payload = outcome
+        if kind == "exists":
+            lines = [
+                f"Component {lcsc_id} exists in the JLCPCB/LCSC catalog, "
+                f"but it has no symbol/footprint in EasyEDA's library, "
+                f"so it can't be imported.",
+                "",
+                "Many JLCPCB catalog parts lack EasyEDA CAD models.",
+            ]
+            stock = payload.get("stock", 0)
+            if stock:
+                lines.append(f"Stock: {stock:,} units")
+            datasheet = payload.get("datasheet")
+            if datasheet:
+                lines.append(f"Datasheet: {datasheet}")
+            url = payload.get("url")
+            if url:
+                lines.append(f"Product page: {url}")
+            text = "\n".join(lines)
+        elif kind == "not_found":
+            text = (
+                f"Component {lcsc_id} not found.\n\n"
+                f"Please check:\n"
+                f"- The part number is correct\n"
+                f"- The component exists in LCSC database\n"
+                f"- Your internet connection is working"
+            )
+        elif kind == "rate_limited":
+            text = (
+                f"{lcsc_id} has no EasyEDA CAD data, and the JLCPCB catalog "
+                f"is rate-limiting requests right now, so it's unclear "
+                f"whether the part exists.\n\n"
+                f"Wait a few seconds, then click Search again."
+            )
+        else:  # lookup error — don't claim the part doesn't exist
+            text = (
+                f"{lcsc_id} has no EasyEDA CAD data, and the JLCPCB catalog "
+                f"check failed ({payload}), so it's unclear whether the part "
+                f"exists.\n\n"
+                f"Check your internet connection and try again."
+            )
+
+        try:
+            self.info_text.SetValue(text)
+        except RuntimeError:
+            pass  # dialog already destroyed
 
     def _on_settings(self, event):
         """Open the LCSC Manager settings dialog."""

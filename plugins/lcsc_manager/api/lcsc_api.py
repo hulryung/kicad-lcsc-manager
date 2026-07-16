@@ -268,12 +268,17 @@ class LCSCAPIClient:
             if session:
                 session.close()
 
-    def _get_jlcpcb_info(self, lcsc_id: str) -> Optional[Dict[str, Any]]:
+    def _get_jlcpcb_info(self, lcsc_id: str,
+                         swallow_errors: bool = True) -> Optional[Dict[str, Any]]:
         """
         Get stock and price information from JLCPCB API
 
         Args:
             lcsc_id: LCSC part number (e.g., "C2040")
+            swallow_errors: When True (default), any lookup failure returns
+                None so callers merging optional stock data are unaffected.
+                When False, errors (e.g. LCSCRateLimitError) propagate so a
+                caller can distinguish "lookup failed" from "no such part".
 
         Returns:
             Dictionary with stock, price, and datasheet info or None if not found
@@ -342,8 +347,34 @@ class LCSCAPIClient:
             return jlcpcb_info
 
         except Exception as e:
+            if not swallow_errors:
+                raise
             logger.warning(f"Failed to fetch JLCPCB info: {e}")
             return None
+
+    def get_jlcpcb_info(self, lcsc_id: str,
+                        swallow_errors: bool = True) -> Optional[Dict[str, Any]]:
+        """
+        Check whether a part exists in the JLCPCB/LCSC catalog and fetch its
+        stock/price/datasheet info.
+
+        Public wrapper around the internal JLCPCB lookup so dialogs can
+        distinguish "part exists but has no EasyEDA CAD data" from "part does
+        not exist" after search_component() returns None (issue #14).
+
+        Args:
+            lcsc_id: LCSC part number (e.g., "C2040")
+            swallow_errors: When True (default) the lookup never raises and
+                returns None on any failure. Pass False when a None result
+                will be shown to the user as "part does not exist" — then
+                LCSCRateLimitError / LCSCAPIError propagate instead of being
+                conflated with non-existence.
+
+        Returns:
+            Info dictionary (stock, price, datasheet, url, ...) on an exact
+            match, or None when the part is unknown.
+        """
+        return self._get_jlcpcb_info(lcsc_id, swallow_errors=swallow_errors)
 
     def search_component(self, lcsc_id: str) -> Optional[Dict[str, Any]]:
         """

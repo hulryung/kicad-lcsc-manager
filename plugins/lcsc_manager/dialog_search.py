@@ -4,11 +4,21 @@ Advanced Search Dialog for LCSC Manager
 Provides component search with multiple parameters and preview functionality.
 """
 import wx
-import wx.html2
 import threading
 import requests
 from typing import Dict, Any, Optional, List
 from pathlib import Path
+
+# wx.html2 (WebView) is optional: on several Linux distros it ships as a
+# separate system package (Debian/Ubuntu: python3-wxgtk-webview4.0, Fedora:
+# python3-wxpython4-webview) and is missing on stock installs. Without it we
+# still offer the full search/import dialog — only the SVG previews are
+# replaced with an explanatory placeholder. See issues #6 and #14.
+try:
+    import wx.html2
+    HAS_WEBVIEW = True
+except ImportError:
+    HAS_WEBVIEW = False
 
 from .api.lcsc_api import get_api_client, LCSCAPIError, LCSCRateLimitError
 from .library.library_manager import LibraryManager
@@ -247,23 +257,24 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Notebook for tabs
         self.preview_notebook = wx.Notebook(panel)
 
-        # Symbol preview tab - WebView
+        # Symbol preview tab - WebView (or placeholder when unavailable)
         symbol_panel = wx.Panel(self.preview_notebook)
         symbol_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.symbol_webview = wx.html2.WebView.New(symbol_panel)
-        self.symbol_webview.SetMinSize((400, 400))
-        symbol_sizer.Add(self.symbol_webview, 1, wx.EXPAND | wx.ALL, 5)
+        self.symbol_webview = self._new_preview_webview(symbol_panel, symbol_sizer)
         symbol_panel.SetSizer(symbol_sizer)
         self.preview_notebook.AddPage(symbol_panel, "Symbol")
 
-        # Footprint preview tab - WebView
+        # Footprint preview tab - WebView (or placeholder when unavailable)
         footprint_panel = wx.Panel(self.preview_notebook)
         footprint_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.footprint_webview = wx.html2.WebView.New(footprint_panel)
-        self.footprint_webview.SetMinSize((400, 400))
-        footprint_sizer.Add(self.footprint_webview, 1, wx.EXPAND | wx.ALL, 5)
+        self.footprint_webview = self._new_preview_webview(footprint_panel, footprint_sizer)
         footprint_panel.SetSizer(footprint_sizer)
         self.preview_notebook.AddPage(footprint_panel, "Footprint")
+
+        # SVG previews only make sense if at least one webview exists;
+        # _fetch_easyeda_svgs uses this to skip network fetches entirely.
+        self._previews_enabled = (self.symbol_webview is not None
+                                  or self.footprint_webview is not None)
 
         # Specifications tab
         specs_panel = wx.Panel(self.preview_notebook)
@@ -286,6 +297,57 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
         panel.SetSizer(sizer)
         return panel
+
+    def _new_preview_webview(self, parent, sizer):
+        """Create a preview WebView, or an explanatory placeholder when the
+        WebView backend is unavailable (missing wx.html2, or present but
+        without a usable browser backend at runtime — seen on some Linux/
+        Flatpak builds). Returns the WebView, or None when unavailable."""
+        webview = None
+        runtime_error = None
+        if HAS_WEBVIEW:
+            try:
+                webview = wx.html2.WebView.New(parent)
+            except Exception as e:
+                logger.warning(f"WebView backend unavailable at runtime: {e}")
+                runtime_error = e
+                webview = None
+
+        if webview is not None:
+            webview.SetMinSize((400, 400))
+            sizer.Add(webview, 1, wx.EXPAND | wx.ALL, 5)
+            return webview
+
+        from .utils.deps import webview_install_hint
+        if runtime_error is not None:
+            # wx.html2 imported fine but the browser backend failed to start
+            # (e.g. missing/broken webkit2gtk on some Linux/Flatpak builds) —
+            # "not installed" advice would be wrong here.
+            cause = (
+                f"Component previews are unavailable: the WebView backend "
+                f"failed to start ({runtime_error}).\n\n"
+                "Search and import still work normally.\n\n"
+                "This usually means the system browser engine (e.g. "
+                "webkit2gtk) is missing or broken. Install/repair it and "
+                "restart KiCad."
+            )
+        else:
+            cause = (
+                "Component previews are unavailable because the wxPython "
+                "WebView backend is not installed.\n\n"
+                "Search and import still work normally.\n\n"
+                "To enable previews, install it and restart KiCad:\n"
+                + webview_install_hint()
+            )
+        placeholder = wx.StaticText(
+            parent,
+            label=cause,
+            style=wx.ALIGN_CENTER_HORIZONTAL,
+        )
+        placeholder.SetMinSize((400, 400))
+        placeholder.Wrap(380)
+        sizer.Add(placeholder, 1, wx.EXPAND | wx.ALL, 5)
+        return None
 
     def _fit_svg_viewbox(self, svg_content: str, bbox: Optional[Dict] = None) -> str:
         """Adjust SVG viewBox to fit content tightly using bbox data"""
@@ -341,6 +403,11 @@ class LCSCManagerSearchDialog(wx.Dialog):
     def _set_webview_svg(self, webview, svg_content: Optional[str],
                          placeholder_msg: str = "", bbox: Optional[Dict] = None):
         """Set SVG content on a WebView widget, fitting viewBox to bbox if provided"""
+        if webview is None:
+            # WebView backend unavailable — the preview tab shows a static
+            # placeholder instead; every display path funnels through here,
+            # so this single guard keeps all of them safe.
+            return
         if svg_content and bbox:
             svg_content = self._fit_svg_viewbox(svg_content, bbox)
         html = self._svg_to_html(svg_content, placeholder_msg)
@@ -565,6 +632,11 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
     def _fetch_easyeda_svgs(self, lcsc_id: str) -> Optional[List]:
         """Fetch pre-rendered SVGs from EasyEDA API (cached)"""
+        if not self._previews_enabled:
+            # No webview to render into — skip the network fetch. The rest of
+            # the preview thread still runs (it also warms component_data for
+            # the specs tab and the import path).
+            return None
         if lcsc_id in self._svg_cache:
             return self._svg_cache[lcsc_id]
 
@@ -658,11 +730,18 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
             specs_text = self._format_specifications(component_data) if component_data else ""
             if not svgs and not component_data:
+                if self._previews_enabled:
+                    advice = ("pick a result that shows symbol and footprint "
+                              "previews instead.")
+                else:
+                    # No previews to point at in degraded (no-WebView) mode —
+                    # the specs tab is the only tell.
+                    advice = ("importable parts show their specifications in "
+                              "this tab when selected.")
                 specs_text = (
                     f"{lcsc_id} has no symbol/footprint in EasyEDA's library, "
                     f"so it can't be imported.\n\n"
-                    f"Many JLCPCB catalog parts lack EasyEDA CAD models — pick a "
-                    f"result that shows symbol and footprint previews instead."
+                    f"Many JLCPCB catalog parts lack EasyEDA CAD models — {advice}"
                 )
 
             # Cache everything
