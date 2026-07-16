@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-07-17
 
 Adds BOM file import ([#13](https://github.com/hulryung/kicad-lcsc-manager/issues/13), requested in [discussion #11](https://github.com/hulryung/kicad-lcsc-manager/discussions/11)), fixes the Linux degraded-mode experience ([#14](https://github.com/hulryung/kicad-lcsc-manager/issues/14), follow-up to [#6](https://github.com/hulryung/kicad-lcsc-manager/issues/6)), and restores KiCad 9 compatibility ([#15](https://github.com/hulryung/kicad-lcsc-manager/issues/15)).
 
