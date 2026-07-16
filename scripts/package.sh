@@ -67,6 +67,16 @@ if [ -f "$ZIP_FILE" ]; then
     rm -f "$ZIP_FILE"
 fi
 
+# Regenerate bundled dependencies so every package ships correctly-resolved
+# versions (pinned to the minimum supported KiCad Python — see issue #15),
+# instead of whatever stale lib/ happens to sit in the working tree.
+print_info "Bundling Python dependencies (scripts/bundle-dependencies.sh)"
+if ! ./scripts/bundle-dependencies.sh > /dev/null; then
+    print_error "Dependency bundling failed"
+    exit 1
+fi
+print_success "Dependencies bundled"
+
 # Create staging directory
 print_info "Creating staging directory structure"
 mkdir -p "${STAGING_DIR}"/{plugins,resources}
