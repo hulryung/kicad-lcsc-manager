@@ -25,6 +25,13 @@ A KiCad plugin that allows you to search and import electronic components from L
 - 🎨 Seamless integration with KiCad 9.0+
 - 🔄 Support for both LCSC/EasyEDA and JLCPCB parts
 
+### BOM Import
+- 📄 **Batch-import from a BOM file**: the **Import BOM…** button imports every LCSC part in a JLCPCB / EasyEDA / KiCad BOM in one pass
+- 🧠 **Auto-detects the LCSC part-number column** (`LCSC Part #`, `LCSC Part Number`, `LCSC`, …), de-duplicates repeated parts, and skips rows without an LCSC number
+- ☑️ **Preview & pick**: choose which parts and which of symbol / footprint / 3D model to import
+- 📈 **Progress + summary**: cancellable progress, then a report of what imported and what failed
+- 🗂️ CSV natively (`.xlsx` with the optional `openpyxl` package); non-ASCII exports decoded automatically
+
 ## 📥 Installation
 
 > **Note about KiCad PCM**: This plugin is **not available in the official KiCad Plugin and Content Manager** due to KiCad's commercial services policy. Plugins that directly integrate with commercial APIs (like LCSC/JLCPCB) require a formal contract between the service provider and the KiCad team. As a third-party developer, I cannot submit to the official PCM. However, you can install it through the methods below.
@@ -158,6 +165,25 @@ A KiCad plugin that allows you to search and import electronic components from L
    - Symbol: `<project>/libs/lcsc/symbols/lcsc_imported.kicad_sym`
    - Footprint: `<project>/libs/lcsc/footprints.pretty/`
    - 3D Models: `<project>/libs/lcsc/3dmodels/`
+
+### Import a BOM file
+
+Instead of importing parts one at a time, you can import everything referenced
+in a BOM file:
+
+1. Click **Import BOM…** at the bottom of the Search & Import dialog.
+2. Pick a BOM file. A **JLCPCB** assembly BOM (or any CSV/EasyEDA/KiCad BOM
+   with an `LCSC Part #` column) works out of the box — no extra editing needed.
+   `.xlsx` files are supported when the optional `openpyxl` package is installed;
+   otherwise export the BOM as CSV.
+3. Review the detected parts. Rows without an LCSC part number are skipped and
+   reported. Untick any parts you don't want, and choose whether to import
+   symbols / footprints / 3D models.
+4. Click **Import**. Progress is shown per part and can be cancelled; when it
+   finishes you get a summary of what imported and what failed.
+
+Imported parts land in the same project libraries as single-part imports (see
+the paths above), and honor the same **⚙ Settings…** library-path overrides.
 
 ### Customizing library paths
 

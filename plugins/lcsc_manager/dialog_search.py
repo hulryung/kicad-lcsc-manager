@@ -136,6 +136,13 @@ class LCSCManagerSearchDialog(wx.Dialog):
         settings_btn = wx.Button(self, label="⚙ Settings…")
         settings_btn.Bind(wx.EVT_BUTTON, self._on_settings)
         button_row.Add(settings_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+
+        bom_btn = wx.Button(self, label="Import BOM…")
+        bom_btn.SetToolTip(
+            "Batch-import every LCSC part in a JLCPCB/EasyEDA BOM file")
+        bom_btn.Bind(wx.EVT_BUTTON, self._on_import_bom)
+        button_row.Add(bom_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
+
         button_row.AddStretchSpacer()
 
         button_sizer = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
@@ -836,6 +843,56 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self.dest_scope_label.SetLabel(scope_text)
         self.dest_scope_label.SetForegroundColour(scope_color)
         self.Layout()
+
+    def _on_import_bom(self, event):
+        """Handle 'Import BOM…' - pick a BOM file and batch-import its parts."""
+        wildcard = (
+            "BOM files (*.csv;*.xlsx)|*.csv;*.xlsx|"
+            "CSV files (*.csv)|*.csv|"
+            "Excel files (*.xlsx)|*.xlsx|"
+            "All files (*.*)|*.*"
+        )
+        with wx.FileDialog(
+            self, "Select a BOM file (JLCPCB / EasyEDA / KiCad)",
+            wildcard=wildcard,
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+            bom_path = file_dialog.GetPath()
+
+        # Parse (import lazily so a parser bug can't break the whole dialog).
+        try:
+            from .bom.bom_parser import parse_bom
+            result = parse_bom(bom_path)
+        except Exception as e:
+            logger.error(f"BOM parse failed: {e}", exc_info=True)
+            wx.MessageBox(
+                f"Could not parse the BOM file:\n\n{e}",
+                "BOM Import Error", wx.OK | wx.ICON_ERROR)
+            return
+
+        if not result.entries:
+            wx.MessageBox(
+                "No LCSC part numbers were found in this BOM.",
+                "BOM Import", wx.OK | wx.ICON_WARNING)
+            return
+
+        from .dialog_bom import BomImportDialog
+        default_options = (
+            self.import_symbol_cb.GetValue(),
+            self.import_footprint_cb.GetValue(),
+            self.import_3d_cb.GetValue(),
+        )
+        dialog = BomImportDialog(
+            self, result, self.api_client, self.library_manager,
+            default_options=default_options,
+            source_name=Path(bom_path).name,
+        )
+        try:
+            dialog.ShowModal()
+        finally:
+            dialog.Destroy()
 
     def _on_import(self, event):
         """Handle import button click - runs fetch+import in background thread"""

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Adds BOM file import ([#13](https://github.com/hulryung/kicad-lcsc-manager/issues/13), requested in [discussion #11](https://github.com/hulryung/kicad-lcsc-manager/discussions/11)).
+
+### Added
+- **Import BOM files** — a new **Import BOM…** button in the Search & Import dialog batch-imports every component referenced in a JLCPCB / EasyEDA / KiCad BOM file. The parser auto-detects the LCSC part-number column (tolerating header variants such as `LCSC Part #`, `LCSC Part Number`, `LCSC`, and value-based fallback when no such header exists), de-duplicates repeated part numbers (aggregating designators and quantities), and skips rows with no LCSC number. A preview dialog lets you tick which parts and which of symbol / footprint / 3D model to import; a progress dialog reports each part and can be cancelled mid-run; a summary lists what imported and what failed (and why). CSV is supported natively; `.xlsx` when the optional `openpyxl` package is present. Non-ASCII exports (e.g. GBK from Chinese tooling) are decoded via the bundled `charset_normalizer`.
+  - New modules: `bom/bom_parser.py` (wx/pcbnew-free, unit-tested), `bom/bom_importer.py` (batch orchestration over the existing single-part import path), and `dialog_bom.py` (the wx UI).
+- `tests/test_bom_parser.py` — offline coverage for JLCPCB parsing/dedup/skip, delimiter & BOM/encoding detection, header variants, value-based column detection, the footprint-not-mistaken-for-LCSC guard, metadata rows above the header, and importer orchestration (happy path, missing part, cancellation).
+
 ## [0.5.2] - 2026-06-09
 
 Resolves [#8](https://github.com/hulryung/kicad-lcsc-manager/issues/8): multi-unit symbols (parts whose schematic symbol is split across several pieces) failed to import.
