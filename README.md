@@ -176,6 +176,11 @@ A KiCad plugin that allows you to search and import electronic components from L
 
 7. **Click "Import Selected"** to add the component to your project
 
+   The dialog stays open after an import, so you can keep searching and adding
+   parts without reopening the plugin — your search results, previews and
+   import options are all still there. A green line above the buttons lists
+   what you've imported so far. Click **Close** when you're done.
+
 8. **Find imported components** in your project libraries (default paths):
    - Symbol: `<project>/libs/lcsc/symbols/lcsc_imported.kicad_sym`
    - Footprint: `<project>/libs/lcsc/footprints.pretty/`
