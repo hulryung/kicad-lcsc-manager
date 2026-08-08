@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from .utils.logger import get_logger
 from .utils.config import get_config
+from .utils.session import ImportSession, REOPEN_HINT
 from .api.lcsc_api import get_api_client, LCSCAPIError, LCSCRateLimitError
 from .library.library_manager import LibraryManager
 
@@ -138,8 +139,13 @@ class LCSCManagerDialog(wx.Dialog):
         # every search so a stale check can't overwrite newer results.
         self._jlcpcb_check_seq = 0
 
+        # An import no longer ends the dialog (issue #16): the user keeps
+        # entering part numbers until they close it.
+        self.session = ImportSession()
+
         self._create_ui()
         self.Centre()
+        self.Bind(wx.EVT_CLOSE, self._on_close_event)
 
         logger.info("Dialog initialized")
 
@@ -174,7 +180,10 @@ class LCSCManagerDialog(wx.Dialog):
         lcsc_label = wx.StaticText(lcsc_panel, label="LCSC Part Number:")
         lcsc_panel_sizer.Add(lcsc_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
 
-        self.lcsc_input = wx.TextCtrl(lcsc_panel, size=(200, -1))
+        # TE_PROCESS_ENTER is required for the EVT_TEXT_ENTER binding below;
+        # without it wx asserts on Bind (fatal in assertion-enabled builds).
+        self.lcsc_input = wx.TextCtrl(lcsc_panel, size=(200, -1),
+                                      style=wx.TE_PROCESS_ENTER)
         self.lcsc_input.SetHint("e.g., C2040 or c2040")
         self.lcsc_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
         self.lcsc_input.Bind(wx.EVT_CHAR, self._on_char)
@@ -231,7 +240,15 @@ class LCSCManagerDialog(wx.Dialog):
         self._refresh_lib_info()
         main_sizer.Add(self.lib_info, 0, wx.ALL | wx.EXPAND, 10)
 
-        # Buttons row: Settings on the left, OK/Cancel on the right.
+        # Running tally of this visit's imports. Since the dialog no longer
+        # closes after an import (issue #16), this is what tells the user the
+        # part actually landed once the result box is dismissed.
+        self.session_label = wx.StaticText(self, label="")
+        self.session_label.SetForegroundColour(wx.Colour(0, 110, 0))
+        main_sizer.Add(self.session_label, 0,
+                       wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
+
+        # Buttons row: Settings on the left, Import/Close on the right.
         button_row = wx.BoxSizer(wx.HORIZONTAL)
 
         settings_btn = wx.Button(self, label="⚙ Settings…")
@@ -242,10 +259,16 @@ class LCSCManagerDialog(wx.Dialog):
         button_sizer = wx.StdDialogButtonSizer()
 
         import_btn = wx.Button(self, wx.ID_OK, "Import")
+        import_btn.SetToolTip(
+            "Import this part. The dialog stays open so you can enter "
+            "another part number.")
         import_btn.Bind(wx.EVT_BUTTON, self._on_import)
         button_sizer.AddButton(import_btn)
 
-        cancel_btn = wx.Button(self, wx.ID_CANCEL, "Cancel")
+        # "Cancel" would be a lie once imports leave the dialog open — by then
+        # this button is just how you leave. ESC routes here too.
+        cancel_btn = wx.Button(self, wx.ID_CANCEL, "Close")
+        cancel_btn.Bind(wx.EVT_BUTTON, self._on_close_button)
         button_sizer.AddButton(cancel_btn)
 
         button_sizer.Realize()
@@ -254,6 +277,23 @@ class LCSCManagerDialog(wx.Dialog):
 
         self.SetSizer(main_sizer)
         self.Layout()
+
+    def _on_close_button(self, event):
+        """Handle the Close button (and ESC, which wx routes to it)."""
+        self._close_dialog()
+
+    def _on_close_event(self, event):
+        """Handle the window manager's close (X) button."""
+        self._close_dialog()
+
+    def _close_dialog(self):
+        """End the dialog, reporting whether anything was imported.
+
+        Imports keep the dialog open (issue #16), so Close/ESC is the normal
+        way out of a *successful* session too — return ID_OK when parts landed
+        so callers can still tell a productive visit from a cancelled one.
+        """
+        self.EndModal(wx.ID_OK if self.session.count else wx.ID_CANCEL)
 
     def _on_char(self, event):
         """Handle character input in LCSC ID field"""
@@ -654,10 +694,9 @@ class LCSCManagerDialog(wx.Dialog):
                 if notifications:
                     message_parts.append("")
                     message_parts.extend(notifications)
-                message_parts.append(
-                    "\nNote: Please close and reopen the schematic editor "
-                    "for imported symbols to appear in the library."
-                )
+
+                if self.session.record(lcsc_id, bool(results.get("symbol"))):
+                    message_parts.append("\n" + REOPEN_HINT)
 
                 wx.MessageBox(
                     "\n".join(message_parts),
@@ -665,8 +704,13 @@ class LCSCManagerDialog(wx.Dialog):
                     wx.OK | wx.ICON_INFORMATION
                 )
 
-                # Close dialog
-                self.EndModal(wx.ID_OK)
+                # Stay open so several parts can be imported in one visit
+                # (issue #16); pre-select the part number so the next one can
+                # just be typed over it.
+                self.session_label.SetLabel(self.session.status_text())
+                self.Layout()
+                self.lcsc_input.SetSelection(-1, -1)
+                self.lcsc_input.SetFocus()
             else:
                 error_message = "\n".join(results.get("errors", ["Unknown error"]))
                 wx.MessageBox(

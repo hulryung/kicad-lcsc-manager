@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Resolves [#16](https://github.com/hulryung/kicad-lcsc-manager/issues/16): importing a part no longer closes the dialog, so several parts can be searched for and added in one visit.
+
+### Changed
+- **The import dialogs stay open after a successful import** ([#16](https://github.com/hulryung/kicad-lcsc-manager/issues/16)). Both the Search & Import dialog and the basic fallback dialog ended themselves the moment a part landed, so adding *n* parts meant reopening the plugin *n* times — BOM import only helps when you already know every LCSC part number, not when you're searching for parts one at a time. Now the search text, results list, previews and import options all survive an import: pick the next part from the same result list and click **Import Selected** again. The dialog closes only when you ask it to, and still reports success to the caller if anything was imported during the visit.
+  - A green **"Imported this session (n): …"** line above the buttons tracks what has landed (oldest entries elided after 6; re-importing a part doesn't double-count it), since the dialog closing is no longer the confirmation that the import worked. Parts brought in via **Import BOM…** count toward the same tally.
+  - The **Cancel** button is now labelled **Close** in both dialogs — it is the ordinary way out of a successful session, not just an abort. ESC and the window close button behave the same.
+  - The *"reopen the schematic editor for imported symbols to appear"* note is shown once per session — on the first import that actually writes a symbol — instead of after every single import.
+  - In the basic dialog the part number is re-selected after an import, so the next one can simply be typed over it.
+
+### Fixed
+- **Basic dialog could fail to open on assertion-enabled wxPython builds.** Its LCSC part-number field bound `EVT_TEXT_ENTER` without the required `wx.TE_PROCESS_ENTER` style, which wx asserts on at `Bind()` time (fatal under KiCad's bundled wx when constructed outside pcbnew). Found while verifying the #16 change against KiCad 9's own wxPython.
+
+### Added
+- `utils/session.py` — wx-free `ImportSession` shared by both dialogs: the tally, the status-line wording, and the one-shot reopen hint (the BOM dialog now takes its reopen wording from the same constant instead of its own copy).
+- `tests/test_issue16_stay_open.py` — offline coverage for session tracking (ordering, re-import de-duplication, long-session elision, hint-once-per-session, hint-requires-a-symbol) plus source-level regression guards that neither dialog ends itself after an import.
+
 ## [0.6.0] - 2026-07-17
 
 Adds BOM file import ([#13](https://github.com/hulryung/kicad-lcsc-manager/issues/13), requested in [discussion #11](https://github.com/hulryung/kicad-lcsc-manager/discussions/11)), fixes the Linux degraded-mode experience ([#14](https://github.com/hulryung/kicad-lcsc-manager/issues/14), follow-up to [#6](https://github.com/hulryung/kicad-lcsc-manager/issues/6)), and restores KiCad 9 compatibility ([#15](https://github.com/hulryung/kicad-lcsc-manager/issues/15)).

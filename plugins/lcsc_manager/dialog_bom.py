@@ -11,6 +11,7 @@ import wx
 
 from .bom.bom_importer import BomImporter, BomImportOptions
 from .utils.logger import get_logger
+from .utils.session import REOPEN_HINT
 
 logger = get_logger("dialog_bom")
 
@@ -32,6 +33,10 @@ class BomImportDialog(wx.Dialog):
 
         self._progress = None
         self._cancel_event = threading.Event()
+
+        # Every part this dialog got in, across retries. The parent dialog
+        # folds these into its session tally (issue #16).
+        self.imported_parts = []
 
         self._create_ui(default_options)
         self.SetSize((760, 560))
@@ -201,6 +206,8 @@ class BomImportDialog(wx.Dialog):
             self._progress.Destroy()
             self._progress = None
 
+        self.imported_parts.extend(summary.imported)
+
         # Untick rows that imported so a follow-up Import in this dialog
         # continues with just the remaining parts.
         if self._has_checks and summary.imported:
@@ -246,8 +253,7 @@ class BomImportDialog(wx.Dialog):
 
         options = getattr(self, "_last_options", None)
         if ok and (options is None or options.import_symbol):
-            lines.append("Reopen the schematic editor for imported symbols "
-                         "to appear.")
+            lines.append(REOPEN_HINT)
 
         dlg = _SummaryDialog(self, "BOM import complete", "\n".join(lines))
         try:

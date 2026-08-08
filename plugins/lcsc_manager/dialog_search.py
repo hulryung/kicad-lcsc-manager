@@ -24,6 +24,7 @@ from .api.lcsc_api import get_api_client, LCSCAPIError, LCSCRateLimitError
 from .library.library_manager import LibraryManager
 from .utils.logger import get_logger
 from .utils.config import get_config
+from .utils.session import ImportSession, REOPEN_HINT
 
 logger = get_logger()
 
@@ -65,6 +66,12 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self.preview_thread = None  # Current preview loading thread
         self.preview_thread_id = 0  # Counter to track preview requests
 
+        # An import no longer ends the dialog (issue #16): the user keeps
+        # searching and adding parts until they close it. This tracks what
+        # landed so far, for the status line and the one-shot reopen hint.
+        self.session = ImportSession()
+        self._import_progress = None
+
         # Create UI
         self._create_ui()
 
@@ -76,6 +83,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Focus search input and allow ESC to close
         self.name_input.SetFocus()
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
+        self.Bind(wx.EVT_CLOSE, self._on_close_event)
 
     def _create_ui(self):
         """Create the user interface"""
@@ -141,7 +149,15 @@ class LCSCManagerSearchDialog(wx.Dialog):
         main_sizer.Add(dest_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         self._refresh_destination()
 
-        # Bottom row: ⚙ Settings on the left, OK/Cancel on the right.
+        # Running tally of this visit's imports. Since the dialog no longer
+        # closes after an import (issue #16), this is what tells the user the
+        # part actually landed once the result box is dismissed.
+        self.session_label = wx.StaticText(self, label="")
+        self.session_label.SetForegroundColour(wx.Colour(0, 110, 0))
+        main_sizer.Add(self.session_label, 0,
+                       wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        # Bottom row: ⚙ Settings on the left, Import/Close on the right.
         button_row = wx.BoxSizer(wx.HORIZONTAL)
         settings_btn = wx.Button(self, label="⚙ Settings…")
         settings_btn.Bind(wx.EVT_BUTTON, self._on_settings)
@@ -158,7 +174,15 @@ class LCSCManagerSearchDialog(wx.Dialog):
         button_sizer = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         import_btn = wx.FindWindowById(wx.ID_OK, self)
         import_btn.SetLabel("Import Selected")
+        import_btn.SetToolTip(
+            "Import the selected part. The dialog stays open so you can "
+            "search for and add more parts.")
         import_btn.Bind(wx.EVT_BUTTON, self._on_import)
+        # "Cancel" would be a lie once imports leave the dialog open — by then
+        # this button is just how you leave.
+        close_btn = wx.FindWindowById(wx.ID_CANCEL, self)
+        close_btn.SetLabel("Close")
+        close_btn.Bind(wx.EVT_BUTTON, self._on_close_button)
         button_row.Add(button_sizer, 0, wx.RIGHT, 10)
 
         main_sizer.Add(button_row, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 10)
@@ -416,9 +440,26 @@ class LCSCManagerSearchDialog(wx.Dialog):
     def _on_char_hook(self, event):
         """Handle key events before child widgets - ESC closes dialog"""
         if event.GetKeyCode() == wx.WXK_ESCAPE:
-            self.EndModal(wx.ID_CANCEL)
+            self._close_dialog()
         else:
             event.Skip()
+
+    def _on_close_button(self, event):
+        """Handle the Close button."""
+        self._close_dialog()
+
+    def _on_close_event(self, event):
+        """Handle the window manager's close (X) button."""
+        self._close_dialog()
+
+    def _close_dialog(self):
+        """End the dialog, reporting whether anything was imported.
+
+        Imports keep the dialog open (issue #16), so Close/ESC is the normal
+        way out of a *successful* session too — return ID_OK when parts landed
+        so callers can still tell a productive visit from a cancelled one.
+        """
+        self.EndModal(wx.ID_OK if self.session.count else wx.ID_CANCEL)
 
     def _create_import_options_panel(self):
         """Create import options panel"""
@@ -970,8 +1011,18 @@ class LCSCManagerSearchDialog(wx.Dialog):
         )
         try:
             dialog.ShowModal()
+            imported = list(dialog.imported_parts)
         finally:
             dialog.Destroy()
+
+        # Fold the batch into this visit's tally so the status line covers
+        # everything imported, not just single-part imports. The BOM dialog
+        # has already shown its own reopen hint, so record() consuming the
+        # one-shot flag here is what we want.
+        for part in imported:
+            self.session.record(part.lcsc_id, part.symbol)
+        self.session_label.SetLabel(self.session.status_text())
+        self.Layout()
 
     def _on_import(self, event):
         """Handle import button click - runs fetch+import in background thread"""
@@ -1004,6 +1055,12 @@ class LCSCManagerSearchDialog(wx.Dialog):
             )
             return
 
+        # The fetch id above may be an EasyEDA uuid; the session line should
+        # show the LCSC part number the user recognizes (same rule as the
+        # results list).
+        display_id = (self.selected_component.get("lcsc") or {}).get(
+            "number") or lcsc_id
+
         # Show progress dialog
         self._import_progress = wx.GenericProgressDialog(
             "Importing Component",
@@ -1017,12 +1074,14 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Run import in background thread
         thread = threading.Thread(
             target=self._import_async,
-            args=(lcsc_id, import_symbol, import_footprint, import_3d),
+            args=(lcsc_id, display_id, import_symbol, import_footprint,
+                  import_3d),
             daemon=True
         )
         thread.start()
 
-    def _import_async(self, lcsc_id, import_symbol, import_footprint, import_3d):
+    def _import_async(self, lcsc_id, display_id, import_symbol,
+                      import_footprint, import_3d):
         """Fetch component data and import in background thread"""
         try:
             # Get component data from cache or fetch
@@ -1068,9 +1127,11 @@ class LCSCManagerSearchDialog(wx.Dialog):
             if notifications:
                 lines.append("")
                 lines.extend(notifications)
-            lines.append("\nReopen schematic editor for symbols to appear.")
 
-            wx.CallAfter(self._import_finish, True, "\n".join(lines))
+            # The reopen hint is appended on the GUI thread, which knows
+            # whether it has already been shown this session.
+            wx.CallAfter(self._import_finish, True, "\n".join(lines),
+                         display_id, bool(result.get("symbol")))
 
         except Exception as e:
             logger.error(f"Import failed: {e}", exc_info=True)
@@ -1081,8 +1142,12 @@ class LCSCManagerSearchDialog(wx.Dialog):
         if self._import_progress:
             self._import_progress.Update(value, message)
 
-    def _import_finish(self, success, message):
+    def _import_finish(self, success, message, lcsc_id=None,
+                       imported_symbol=False):
         """Show final result inside the progress dialog (called on main thread)"""
+        if success and self.session.record(lcsc_id, imported_symbol):
+            message += "\n" + REOPEN_HINT
+
         if self._import_progress:
             # Update to 100% with result message, user clicks OK to dismiss
             self._import_progress.Update(100, message)
@@ -1090,4 +1155,11 @@ class LCSCManagerSearchDialog(wx.Dialog):
             self._import_progress = None
 
         if success:
-            self.EndModal(wx.ID_OK)
+            # Stay open so several parts can be added in one visit (issue
+            # #16) — search terms, results and previews are all still here.
+            self.session_label.SetLabel(self.session.status_text())
+            self.Layout()
+            if self.results_list.GetItemCount():
+                self.results_list.SetFocus()
+            else:
+                self.name_input.SetFocus()
