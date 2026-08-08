@@ -145,7 +145,7 @@ class LCSCManagerDialog(wx.Dialog):
 
         self._create_ui()
         self.Centre()
-        self.Bind(wx.EVT_CLOSE, self._on_close_event)
+        self.Bind(wx.EVT_CLOSE, self._on_close_request)
 
         logger.info("Dialog initialized")
 
@@ -182,11 +182,13 @@ class LCSCManagerDialog(wx.Dialog):
 
         # TE_PROCESS_ENTER is required for the EVT_TEXT_ENTER binding below;
         # without it wx asserts on Bind (fatal in assertion-enabled builds).
+        # It is also the only Enter handler: an EVT_CHAR handler that
+        # swallowed WXK_RETURN would stop the native control from ever
+        # emitting EVT_TEXT_ENTER.
         self.lcsc_input = wx.TextCtrl(lcsc_panel, size=(200, -1),
                                       style=wx.TE_PROCESS_ENTER)
         self.lcsc_input.SetHint("e.g., C2040 or c2040")
         self.lcsc_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
-        self.lcsc_input.Bind(wx.EVT_CHAR, self._on_char)
         lcsc_panel_sizer.Add(self.lcsc_input, 1, wx.EXPAND)
 
         search_btn = wx.Button(lcsc_panel, label="Search")
@@ -268,7 +270,7 @@ class LCSCManagerDialog(wx.Dialog):
         # "Cancel" would be a lie once imports leave the dialog open — by then
         # this button is just how you leave. ESC routes here too.
         cancel_btn = wx.Button(self, wx.ID_CANCEL, "Close")
-        cancel_btn.Bind(wx.EVT_BUTTON, self._on_close_button)
+        cancel_btn.Bind(wx.EVT_BUTTON, self._on_close_request)
         button_sizer.AddButton(cancel_btn)
 
         button_sizer.Realize()
@@ -278,12 +280,8 @@ class LCSCManagerDialog(wx.Dialog):
         self.SetSizer(main_sizer)
         self.Layout()
 
-    def _on_close_button(self, event):
-        """Handle the Close button (and ESC, which wx routes to it)."""
-        self._close_dialog()
-
-    def _on_close_event(self, event):
-        """Handle the window manager's close (X) button."""
+    def _on_close_request(self, event):
+        """Handle the Close button (ESC routes to it) and the window's X."""
         self._close_dialog()
 
     def _close_dialog(self):
@@ -294,18 +292,6 @@ class LCSCManagerDialog(wx.Dialog):
         so callers can still tell a productive visit from a cancelled one.
         """
         self.EndModal(wx.ID_OK if self.session.count else wx.ID_CANCEL)
-
-    def _on_char(self, event):
-        """Handle character input in LCSC ID field"""
-        keycode = event.GetKeyCode()
-
-        # Check for Enter key
-        if keycode == wx.WXK_RETURN or keycode == wx.WXK_NUMPAD_ENTER:
-            # Trigger search
-            self._on_search(event)
-        else:
-            # Allow normal character processing
-            event.Skip()
 
     def _on_search(self, event):
         """Handle search button click or Enter key"""
@@ -635,6 +621,7 @@ class LCSCManagerDialog(wx.Dialog):
                     # User cancelled
                     confirm_dialog.Destroy()
                     progress.Destroy()
+                    progress = None
                     logger.info("Import cancelled by user (existing files)")
                     return
 
@@ -670,7 +657,11 @@ class LCSCManagerDialog(wx.Dialog):
             progress.Update(100, "Finalizing...")
             wx.MilliSleep(300)
 
+            # Cleared so the handler below can't Destroy() it a second time:
+            # everything after this point (message box, session bookkeeping,
+            # relayout) can still raise.
             progress.Destroy()
+            progress = None
 
             # Show results
             if results["success"]:
@@ -720,7 +711,8 @@ class LCSCManagerDialog(wx.Dialog):
                 )
 
         except Exception as e:
-            progress.Destroy()
+            if progress:
+                progress.Destroy()
             logger.error(f"Import failed: {e}", exc_info=True)
             wx.MessageBox(
                 f"Import failed: {str(e)}",

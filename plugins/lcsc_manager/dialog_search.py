@@ -83,7 +83,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Focus search input and allow ESC to close
         self.name_input.SetFocus()
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
-        self.Bind(wx.EVT_CLOSE, self._on_close_event)
+        self.Bind(wx.EVT_CLOSE, self._on_close_request)
 
     def _create_ui(self):
         """Create the user interface"""
@@ -182,7 +182,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # this button is just how you leave.
         close_btn = wx.FindWindowById(wx.ID_CANCEL, self)
         close_btn.SetLabel("Close")
-        close_btn.Bind(wx.EVT_BUTTON, self._on_close_button)
+        close_btn.Bind(wx.EVT_BUTTON, self._on_close_request)
         button_row.Add(button_sizer, 0, wx.RIGHT, 10)
 
         main_sizer.Add(button_row, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 10)
@@ -444,12 +444,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         else:
             event.Skip()
 
-    def _on_close_button(self, event):
-        """Handle the Close button."""
-        self._close_dialog()
-
-    def _on_close_event(self, event):
-        """Handle the window manager's close (X) button."""
+    def _on_close_request(self, event):
+        """Handle the Close button and the window manager's close (X)."""
         self._close_dialog()
 
     def _close_dialog(self):
@@ -460,6 +456,11 @@ class LCSCManagerSearchDialog(wx.Dialog):
         so callers can still tell a productive visit from a cancelled one.
         """
         self.EndModal(wx.ID_OK if self.session.count else wx.ID_CANCEL)
+
+    def _refresh_session_label(self):
+        """Redraw the 'Imported this session' line after a tally change."""
+        self.session_label.SetLabel(self.session.status_text())
+        self.Layout()
 
     def _create_import_options_panel(self):
         """Create import options panel"""
@@ -499,6 +500,11 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Reset pagination
         self.current_page = 1
         self.search_results = []
+        # The result list is about to be rebuilt, so the previous pick is
+        # gone from the UI. Drop it too — otherwise "Import Selected" would
+        # silently re-import the part from the *previous* search (issue #16
+        # made search → import → search → import the normal flow).
+        self.selected_component = None
 
         # Perform search
         self._perform_search(search_text, package, self.current_page)
@@ -1021,8 +1027,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # one-shot flag here is what we want.
         for part in imported:
             self.session.record(part.lcsc_id, part.symbol)
-        self.session_label.SetLabel(self.session.status_text())
-        self.Layout()
+        self._refresh_session_label()
 
     def _on_import(self, event):
         """Handle import button click - runs fetch+import in background thread"""
@@ -1046,7 +1051,10 @@ class LCSCManagerSearchDialog(wx.Dialog):
             )
             return
 
-        lcsc_id = self.selected_component.get("uuid") or self.selected_component.get("lcsc", {}).get("number")
+        # "lcsc" can be present but null in EasyEDA responses, so `or {}`
+        # rather than a .get() default.
+        lcsc_meta = self.selected_component.get("lcsc") or {}
+        lcsc_id = self.selected_component.get("uuid") or lcsc_meta.get("number")
         if not lcsc_id:
             wx.MessageBox(
                 "No LCSC ID found for selected component.",
@@ -1055,16 +1063,15 @@ class LCSCManagerSearchDialog(wx.Dialog):
             )
             return
 
-        # The fetch id above may be an EasyEDA uuid; the session line should
-        # show the LCSC part number the user recognizes (same rule as the
-        # results list).
-        display_id = (self.selected_component.get("lcsc") or {}).get(
-            "number") or lcsc_id
+        # The fetch id above may be an EasyEDA uuid; anything the user reads
+        # should show the LCSC part number instead (same rule as the results
+        # list).
+        display_id = lcsc_meta.get("number") or lcsc_id
 
         # Show progress dialog
         self._import_progress = wx.GenericProgressDialog(
             "Importing Component",
-            f"Fetching component data for {lcsc_id}...\n\n\n\n",
+            f"Fetching component data for {display_id}...\n\n\n\n",
             maximum=100,
             parent=self,
             style=wx.PD_APP_MODAL | wx.PD_CAN_ABORT
@@ -1114,14 +1121,27 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 import_3d=import_3d
             )
 
+            # import_component swallows per-artifact failures into
+            # result["errors"] and reports them via result["success"] — a
+            # returned dict is not by itself a successful import. Reporting
+            # one as success would also add the part to the session tally,
+            # which is now the user's only confirmation that it landed.
+            success = bool(result.get("success"))
+
             # Build result message
-            lines = ["Import completed!\n"]
+            lines = ["Import completed!\n" if success
+                     else "Import did not complete.\n"]
             if result.get("symbol"):
                 lines.append("Symbol: OK")
             if result.get("footprint"):
                 lines.append("Footprint: OK")
             if result.get("model_3d"):
                 lines.append("3D Model: OK")
+
+            errors = result.get("errors") or []
+            if errors:
+                lines.append("")
+                lines.extend(str(err) for err in errors)
 
             notifications = result.get("notifications", [])
             if notifications:
@@ -1130,7 +1150,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
             # The reopen hint is appended on the GUI thread, which knows
             # whether it has already been shown this session.
-            wx.CallAfter(self._import_finish, True, "\n".join(lines),
+            wx.CallAfter(self._import_finish, success, "\n".join(lines),
                          display_id, bool(result.get("symbol")))
 
         except Exception as e:
@@ -1157,8 +1177,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         if success:
             # Stay open so several parts can be added in one visit (issue
             # #16) — search terms, results and previews are all still here.
-            self.session_label.SetLabel(self.session.status_text())
-            self.Layout()
+            self._refresh_session_label()
             if self.results_list.GetItemCount():
                 self.results_list.SetFocus()
             else:

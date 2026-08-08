@@ -17,6 +17,8 @@ Resolves [#16](https://github.com/hulryung/kicad-lcsc-manager/issues/16): import
   - In the basic dialog the part number is re-selected after an import, so the next one can simply be typed over it.
 
 ### Fixed
+- **A failed import in the search dialog was reported as a success.** `import_component()` collects per-artifact failures into `result["errors"]` and reports them via `result["success"]`, but the search dialog ignored both and always said *"Import completed!"*. It now gates on `success`, lists the errors in the result box, and keeps failed parts out of the session tally — which matters more than before, since that tally is now the user's confirmation that a part landed. The basic dialog and BOM import already checked `success`.
+- **"Import Selected" could silently re-import the previous search's part.** A new search rebuilds the results list but left `selected_component` pointing at the old pick, so with nothing visibly selected the button imported the earlier part again. Searching now clears the selection. This only became reachable in practice because search → import → search → import is now the normal flow.
 - **Basic dialog could fail to open on assertion-enabled wxPython builds.** Its LCSC part-number field bound `EVT_TEXT_ENTER` without the required `wx.TE_PROCESS_ENTER` style, which wx asserts on at `Bind()` time (fatal under KiCad's bundled wx when constructed outside pcbnew). Found while verifying the #16 change against KiCad 9's own wxPython.
 
 ### Added
