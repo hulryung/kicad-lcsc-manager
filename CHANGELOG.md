@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-08-23
+
+Resolves [#17](https://github.com/hulryung/kicad-lcsc-manager/issues/17): some parts showed a blank LCSC ID in the search results and could not be imported.
+
+### Fixed
+- **Search results could lose the LCSC part number, blocking import** ([#17](https://github.com/hulryung/kicad-lcsc-manager/issues/17)). The part number was recovered from JLCPCB's `urlSuffix`, which comes in two shapes — `"RaspberryPi-RP2040/C2040"` (brand-model slug + code) and `"C5142652"` (bare code). The extraction required a `/` and returned an empty string otherwise, so affected parts (e.g. C5142652 / CM8V-T1A-32.768KHZ-9PF-20PPM) appeared with an empty **LCSC ID** column, a preview stuck on *"Loading..."*, and **Import Selected** refusing to start with *"No LCSC ID found for selected component."* The number is now read from the `componentCode` field, which carries it verbatim, falling back to the last segment of `urlSuffix`. Only the search-result mapping was affected — the parts themselves were always importable, which is why BOM import worked for them.
+- **A result with no part number no longer leaves the preview spinning.** The preview loader returned silently after the caller had already painted *"Loading..."*. It now replaces that placeholder with an explanation, so an unusable row says so instead of appearing to hang.
+
+### Added
+- `tests/test_issue17_search_lcsc_id.py` — offline coverage for both `urlSuffix` shapes, `componentCode` precedence, fallback when the field is absent, the no-id-anywhere case (empty string, not an exception), and source-level guards against the slash-only extraction returning.
+
 ## [0.7.0] - 2026-08-08
 
 Resolves [#16](https://github.com/hulryung/kicad-lcsc-manager/issues/16): importing a part no longer closes the dialog, so several parts can be searched for and added in one visit.

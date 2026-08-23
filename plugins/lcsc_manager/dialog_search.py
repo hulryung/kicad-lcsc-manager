@@ -714,9 +714,19 @@ class LCSCManagerSearchDialog(wx.Dialog):
         """Load SVG previews and component data independently (runs in background thread)"""
         lcsc_id = None  # bound before the try so except handlers can reference it
         try:
-            lcsc_id = result.get("uuid") or result.get("lcsc", {}).get("number")
+            lcsc_id = result.get("uuid") or (result.get("lcsc") or {}).get("number")
             if not lcsc_id:
+                # Nothing to fetch with. Say so instead of returning silently —
+                # the caller has already painted "Loading...", which would
+                # otherwise sit there forever (issue #17).
                 logger.warning("No LCSC ID in result")
+                if thread_id == self.preview_thread_id:
+                    wx.CallAfter(
+                        self._display_previews, None, None,
+                        "This search result carries no LCSC part number, so it "
+                        "can't be previewed or imported.",
+                        placeholder_msg="No LCSC part number"
+                    )
                 return
 
             if thread_id != self.preview_thread_id:

@@ -799,9 +799,16 @@ class LCSCAPIClient:
             # Convert JLCPCB format to our internal format
             results = []
             for comp in components:
-                # Extract LCSC ID from urlSuffix (e.g., "RaspberryPi-RP2040/C2040" -> "C2040")
-                url_suffix = comp.get("urlSuffix", "")
-                lcsc_id = url_suffix.split("/")[-1] if "/" in url_suffix else ""
+                # The LCSC part number. "componentCode" carries it verbatim;
+                # urlSuffix is the fallback, and comes in two shapes:
+                #   "RaspberryPi-RP2040/C2040"  (brand-model slug + code)
+                #   "C5142652"                  (bare code, no slug)
+                # Requiring a "/" dropped the id for the second shape, which
+                # left the row with a blank LCSC ID, a preview stuck on
+                # "Loading...", and an import that refused to start (issue #17).
+                url_suffix = comp.get("urlSuffix") or ""
+                lcsc_id = (comp.get("componentCode")
+                           or url_suffix.split("/")[-1]).strip()
 
                 # Debug: log available name fields for first component
                 if len(results) == 0 and lcsc_id:
