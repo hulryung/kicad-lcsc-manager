@@ -2,38 +2,55 @@
 
 ## Installation Methods
 
-### Method 1: KiCad Plugin Manager (Recommended - Coming Soon)
+### Method 1: Custom Repository in the Plugin and Content Manager (Recommended)
 
-1. Open KiCad
-2. Go to **Tools → Plugin and Content Manager**
-3. Search for "LCSC Manager"
-4. Click **Install**
-5. Restart KiCad
+This plugin is **not in the official KiCad PCM repository** and cannot be — KiCad's
+[commercial services policy](https://dev-docs.kicad.org/en/addons/index.html#_commercial_services)
+requires a formal contract for add-ons that integrate directly with a commercial
+API such as LCSC/JLCPCB. Adding the project's own repository gives you the same
+one-click install and update notifications.
+
+1. Open the **Plugin and Content Manager**
+   - From the **main KiCad window** (the project launcher), click the
+     **Plugin and Content Manager** button, **or**
+   - From an editor, go to **Tools → Plugin and Content Manager**
+2. Click **Manage...** (bottom-left)
+3. Click **Add Repository**, paste this URL, and click **OK**:
+   ```
+   https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/repository.json
+   ```
+4. Close the repository manager, then switch the **repository dropdown** at the
+   top of the PCM to **LCSC Manager**
+5. Select **LCSC Manager**, click **Install**, then **Apply Pending Changes**
+6. Restart KiCad completely
+
+Works on KiCad 9.0 and 10.0. The package declares `kicad_version: "9.0"`, which
+in the PCM schema is the *minimum* supported version, not a cap — newer KiCad
+releases are not excluded by it.
 
 ### Method 2: Manual Installation
 
 #### Step 1: Locate Your KiCad Plugins Directory
 
-The plugins directory location varies by operating system:
+Replace `<KICAD_VERSION>` with the version you run — `9.0`, `10.0`, and so on.
+Either of these directories works; the PCM installs into the first.
 
 **Windows:**
 ```
-C:\Users\[USERNAME]\Documents\KiCad\[VERSION]\scripting\plugins\
+C:\Users\[USERNAME]\Documents\KiCad\<KICAD_VERSION>\3rdparty\plugins\
+C:\Users\[USERNAME]\Documents\KiCad\<KICAD_VERSION>\scripting\plugins\
 ```
 
 **macOS:**
 ```
-~/Documents/KiCad/[VERSION]/scripting/plugins/
+~/Documents/KiCad/<KICAD_VERSION>/3rdparty/plugins/
+~/Documents/KiCad/<KICAD_VERSION>/scripting/plugins/
 ```
 
 **Linux:**
 ```
-~/.kicad/scripting/plugins/
-```
-
-Or in your KiCad installation:
-```
-~/.local/share/kicad/[VERSION]/scripting/plugins/
+~/.local/share/kicad/<KICAD_VERSION>/3rdparty/plugins/
+~/.local/share/kicad/<KICAD_VERSION>/scripting/plugins/
 ```
 
 #### Step 2: Find Your Plugins Directory in KiCad
@@ -41,62 +58,85 @@ Or in your KiCad installation:
 If you're unsure of the exact path:
 
 1. Open KiCad PCB Editor
-2. Go to **Tools → External Plugins → Open Plugin Directory**
-3. This will open your plugins folder
+2. Go to **Tools → External Plugins → Reveal Plugin Folder in Finder**
+   (**Open Plugin Directory** on Windows/Linux)
 
 #### Step 3: Install the Plugin
 
-**Option A: Clone from Git**
+Whichever option you use, the plugin must end up as a directory named
+**`lcsc_manager`** sitting directly in your plugins directory, with
+`__init__.py` inside it. KiCad loads plugin *packages* by directory name, so a
+folder called anything else — `kicad-lcsc-manager`, or `plugins` — is ignored.
+
+**Option A: From a Git clone**
+
+Clone anywhere *outside* the plugins directory, then copy the module in.
+Cloning straight into the plugins directory does **not** work: it produces a
+`kicad-lcsc-manager/` folder with no `__init__.py` at its top level, which
+KiCad skips.
 
 ```bash
-cd [your-kicad-plugins-directory]
 git clone https://github.com/hulryung/kicad-lcsc-manager.git
+cp -R kicad-lcsc-manager/plugins/lcsc_manager [your-kicad-plugins-directory]/
 ```
 
-**Option B: Download and Extract**
+**Option B: From a release ZIP**
 
-1. Download the latest release from GitHub
-2. Extract the `kicad-lcsc-manager` folder
-3. Copy the entire `kicad-lcsc-manager/plugins/lcsc_manager` directory to your KiCad plugins directory
+The release ZIP is a **PCM package**, not a drop-in plugin folder: its
+`plugins/` directory holds the module's *contents*, which the PCM unpacks into
+`3rdparty/plugins/<package identifier>/`. Extracting the archive as-is into
+your plugins directory leaves a folder literally named `plugins`, which KiCad
+will not load ([#18](https://github.com/hulryung/kicad-lcsc-manager/issues/18)).
 
-The final structure should look like:
+1. Download `kicad-lcsc-manager-x.x.x.zip` from
+   [Releases](https://github.com/hulryung/kicad-lcsc-manager/releases)
+2. Extract it somewhere temporary
+3. Copy everything *inside* the ZIP's `plugins/` directory into a new
+   `lcsc_manager` folder in your plugins directory
+
+The archive's `metadata.json` and `resources/` are only used by the PCM; a
+manual install doesn't need them.
+
+**The final structure, either way:**
 ```
 [kicad-plugins-directory]/
 └── lcsc_manager/
     ├── __init__.py
     ├── plugin.py
     ├── dialog.py
+    ├── dialog_search.py
+    ├── dialog_bom.py
+    ├── dialog_settings.py
     ├── api/
+    ├── bom/
     ├── converters/
     ├── library/
+    ├── preview/
     ├── utils/
-    └── resources/
+    ├── vendor/
+    ├── plugin_resources/
+    └── lib/            ← bundled requests / urllib3
 ```
 
-#### Step 4: Install Python Dependencies
+#### Step 4: Python Dependencies — Nothing to Install
 
-The plugin requires some Python packages. Install them using pip:
+`requests` and its dependencies ship inside the plugin under
+`lcsc_manager/lib/`, pinned to versions that work with the Python bundled with
+KiCad 9 and 10. There is nothing to `pip install`.
+
+**Linux only — optional WebView backend.** Component previews need wxPython's
+WebView component, which most distributions package separately. Without it the
+search dialog works normally and only the previews are replaced by a
+placeholder.
 
 ```bash
-pip install requests pydantic
-```
+# Debian / Ubuntu
+sudo apt install python3-wxgtk-webview4.0
 
-Or if KiCad uses its own Python installation:
+# Fedora
+sudo dnf install python3-wxpython4-webview
 
-**Windows:**
-```cmd
-"C:\Program Files\KiCad\[VERSION]\bin\python.exe" -m pip install requests pydantic
-```
-
-**macOS:**
-```bash
-/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/pip3 install requests pydantic
-```
-
-**Linux:**
-```bash
-# Usually uses system Python
-pip3 install requests pydantic
+# Arch: python-wxpython bundles WebView; make sure webkit2gtk is installed
 ```
 
 #### Step 5: Restart KiCad
@@ -105,33 +145,41 @@ Close and reopen KiCad for the plugin to be loaded.
 
 ## Verification
 
-1. Open KiCad PCB Editor
-2. Look for the LCSC Manager icon in the toolbar (if icon is set)
-3. Or go to **Tools → External Plugins** and check if "LCSC Manager" is listed
+1. Open KiCad **PCB Editor** — the plugin runs there, not in the Schematic
+   Editor, because KiCad's Python action-plugin API is pcbnew-only
+2. Look for the LCSC Manager icon in the toolbar
+3. Or go to **Tools → External Plugins** and check that **LCSC Manager** is
+   listed
 
 ## Troubleshooting
 
 ### Plugin Not Showing Up
 
-1. **Check directory location**: Make sure the plugin is in the correct directory
-2. **Check file structure**: Ensure `__init__.py` and `plugin.py` are in the `lcsc_manager` folder
-3. **Check Python version**: KiCad requires Python 3.8 or later
-4. **Check logs**: Look for error messages in KiCad's scripting console
+1. **Check the folder name**: the directory must be named `lcsc_manager`, with
+   `__init__.py` and `plugin.py` directly inside it — not nested under another
+   folder such as `plugins/` or `kicad-lcsc-manager/`
+2. **Check the directory location**: see Step 1, and confirm the KiCad version
+   in the path matches the KiCad you actually launched
+3. **Refresh**: **Tools → External Plugins → Refresh Plugins**, or restart
+   KiCad completely
+4. **Check the logs**: see *Finding Logs* below, and KiCad's scripting console
 
 ### Import Errors
 
-If you see import errors:
+The plugin bundles its own dependencies, so import errors usually mean a
+partial copy rather than a missing package:
 
-1. Make sure dependencies are installed: `pip install requests pydantic`
-2. Check that KiCad can access the Python packages
-3. Try installing packages to KiCad's Python installation (see Step 4 above)
+1. Confirm `lcsc_manager/lib/` came along with the rest of the files
+2. Check the log for the failing module name
+3. On Linux, a missing `wx.html2` only disables previews — the dialog still
+   opens and reports this itself
 
 ### Permission Errors
 
 On Linux/macOS, you might need to set permissions:
 
 ```bash
-chmod -R 755 ~/.kicad/scripting/plugins/lcsc_manager
+chmod -R 755 [your-kicad-plugins-directory]/lcsc_manager
 ```
 
 ### Finding Logs
@@ -147,15 +195,22 @@ Check this file for detailed error messages.
 
 ## Uninstallation
 
-To remove the plugin:
+**Installed via the PCM (Method 1):** open the Plugin and Content Manager, go
+to the **Installed** tab, uninstall **LCSC Manager**, and click **Apply Pending
+Changes**.
 
-1. Delete the `lcsc_manager` directory from your KiCad plugins folder
-2. Delete the configuration and logs:
-   ```bash
-   rm -rf ~/.kicad/lcsc_manager
-   ```
-3. Restart KiCad
+**Installed manually (Method 2):** delete the `lcsc_manager` directory from
+your KiCad plugins folder.
+
+Either way, to also remove the configuration and logs:
+
+```bash
+rm -rf ~/.kicad/lcsc_manager
+```
+
+Then restart KiCad.
 
 ## Next Steps
 
-Once installed, check out the [Usage Guide](README.md#usage) to learn how to import components.
+Once installed, check out the [Usage Guide](README.md#-usage) to learn how to
+import components.
