@@ -64,47 +64,56 @@ A KiCad plugin that allows you to search and import electronic components from L
 
 ### Method 2: Manual Installation
 
+> **Don't extract the release ZIP straight into your plugins folder.** It is a
+> **KiCad PCM package**: its `plugins/` directory holds the module's *contents*,
+> which the PCM unpacks into `3rdparty/plugins/<package identifier>/`. Dropping
+> the archive in as-is leaves you with a folder literally named `plugins`, which
+> KiCad will not load ([#18](https://github.com/hulryung/kicad-lcsc-manager/issues/18)).
+> Copy the contents into a folder named `lcsc_manager`, as described below.
+
 1. **Download the latest release**
    - Go to [Releases](https://github.com/hulryung/kicad-lcsc-manager/releases)
    - Download `kicad-lcsc-manager-x.x.x.zip` from the latest release
 
-2. **Extract to KiCad plugins directory**
-
-   Find your KiCad version (e.g., 9.0) and extract to:
+2. **Extract it somewhere temporary**, then copy everything *inside* the ZIP's
+   `plugins/` directory into a new `lcsc_manager` folder in your KiCad plugins
+   directory. Replace `<KICAD_VERSION>` with the version you run — `9.0`,
+   `10.0`, and so on:
 
    - **Windows**:
      ```
-     C:\Users\[USERNAME]\Documents\KiCad\9.0\3rdparty\plugins\
+     C:\Users\[USERNAME]\Documents\KiCad\<KICAD_VERSION>\3rdparty\plugins\lcsc_manager\
      ```
    - **macOS**:
      ```
-     ~/Documents/KiCad/9.0/3rdparty/plugins/
+     ~/Documents/KiCad/<KICAD_VERSION>/3rdparty/plugins/lcsc_manager/
      ```
    - **Linux**:
      ```
-     ~/.local/share/kicad/9.0/3rdparty/plugins/
+     ~/.local/share/kicad/<KICAD_VERSION>/3rdparty/plugins/lcsc_manager/
      ```
 
-3. **Install Python dependencies** ⚠️ **REQUIRED**
+   The result must look like this — note `__init__.py` sits directly inside
+   `lcsc_manager/`, not inside a nested `plugins/`:
 
-   **IMPORTANT**: The plugin will NOT work without these Python packages!
-
-   Install them using KiCad's Python (not your system Python):
-
-   **macOS**:
-   ```bash
-   /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 -m pip install --user requests pydantic
+   ```
+   [kicad-plugins-directory]/
+   └── lcsc_manager/
+       ├── __init__.py
+       ├── plugin.py
+       ├── dialog_search.py
+       ├── api/
+       ├── library/
+       ├── lib/          ← bundled requests / urllib3
+       └── ...
    ```
 
-   **Windows** (PowerShell):
-   ```powershell
-   & "C:\Program Files\KiCad\9.0\bin\python.exe" -m pip install --user requests pydantic
-   ```
+   The ZIP's `metadata.json` and `resources/` are only used by the PCM; a manual
+   install doesn't need them.
 
-   **Linux**:
-   ```bash
-   pip3 install --user requests pydantic
-   ```
+3. **Python dependencies — nothing to install.** `requests` and its
+   dependencies ship inside the package under `lcsc_manager/lib/`, pinned to a
+   version that works with KiCad's bundled Python.
 
    **Linux only — WebView backend for the full search dialog.** Most distros
    ship wxPython's WebView component as a separate system package. Without it
@@ -260,9 +269,8 @@ Alternatively, manually remove:
 - **KiCad**: 9.0 or later (recommended)
   - May work with KiCad 7.0+ but not officially tested
 - **Python**: 3.9+ (bundled with KiCad)
-- **Python packages**:
-  - `requests>=2.31.0` - For API calls
-  - `pydantic>=2.5.0` - For data validation
+- **Python packages**: none to install — `requests` and its dependencies are
+  bundled with the plugin (`lcsc_manager/lib/`)
 - **Linux only**: the wxPython **WebView** backend for component previews
   (Debian/Ubuntu: `python3-wxgtk-webview4.0`, Fedora:
   `python3-wxpython4-webview`). Optional — without it the search dialog works
