@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-09-13
+
+Resolves [#20](https://github.com/hulryung/kicad-lcsc-manager/issues/20): Global settings looked unsaved and could be silently overridden by the project.
+
+### Fixed
+- **Global settings looked lost after saving** ([#20](https://github.com/hulryung/kicad-lcsc-manager/issues/20)). The Settings dialog always opened on *This project only* whenever a project was open, whatever had been saved. After a Global save, reopening therefore showed the project view — with the Global value resolved to an absolute path inside the project — so the save appeared to have been discarded. The dialog now opens on the scope that actually supplies the settings in effect: *This project only* when the project overrides something, *Global* otherwise.
+- **A project Save no longer shadows every Global setting.** Saving at project scope wrote all four fields into `.lcsc_manager.json`, inherited values included, so that project ignored any later Global change for good — the other half of #20. Project saves now store only the values that differ from Global, and remove the file when nothing differs. Global saves likewise store only values that differ from the built-in defaults.
+- **Projects already pinned by older versions are called out.** When the Global view is open on a project that overrides Global, the dialog says which fields are overridden, and after a Global save it offers to remove those overrides so the project follows Global.
+- **Windows drive paths slipped past validation.** Only a leading `/` or `~` was rejected, so `C:\libs` was accepted and produced a broken `${KIPRJMOD}/C:\libs/...` library-table URI. Drive letters, UNC and `\`-rooted paths are now rejected too, and `..` is caught with either separator.
+
+### Changed
+- The scope box is now titled **Save these settings to**, with *Global — the default for every project* and *This project only — overrides Global for this project*, plus a note that paths are relative to each project's folder. "Global (all projects)" read as "one shared library folder", which is not what the option does.
+- Field badges read `[from global]` / `[from default]` for inherited values, since a Save no longer copies them into the edited scope.
+
+### Added
+- `Config.default_edit_scope()`, `save_project_settings()`, `save_global_settings()`, `project_override_keys()` and the module-level `validate_path_value()` — wx-free, so the dialog's decisions are unit-tested.
+- `tests/test_issue20_settings_scope.py` — which scope the dialog opens on, diff-only project and global saves, a later Global change reaching a project that was saved once, removal of an emptied project file, preservation of non-path keys, detection of old fully-pinned projects, and path validation across OSes.
+
 ## [0.7.1] - 2026-08-23
 
 Resolves [#17](https://github.com/hulryung/kicad-lcsc-manager/issues/17): some parts showed a blank LCSC ID in the search results and could not be imported.

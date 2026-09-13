@@ -234,10 +234,16 @@ Settings can be saved at one of two scopes:
   global config for that project. Commit this file if you want the layout
   shared with your team, or add it to `.gitignore` if it's personal.
 
-Resolution order is `default < global < project`. The Settings dialog shows a
-live preview of the resolved absolute paths and indicates which scope each
-value comes from. Changes apply to *future* imports only — existing libraries
-are not moved automatically.
+Resolution order is `default < global < project`. A project stores only the
+values that differ from Global, so everything else keeps following Global. The
+Settings dialog opens on whichever scope currently supplies the settings, shows
+a live preview of the resolved paths, and marks where each value comes from.
+Changes apply to *future* imports only — existing libraries are not moved
+automatically.
+
+> **Global is a default, not a shared folder.** Every path is relative to the
+> project, so with Global settings each project still gets its own copy of the
+> libraries — Global just decides the layout they all use.
 
 ### Tips
 
