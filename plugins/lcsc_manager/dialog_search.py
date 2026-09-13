@@ -1153,15 +1153,12 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 lines.append("")
                 lines.extend(str(err) for err in errors)
 
-            notifications = result.get("notifications", [])
-            if notifications:
-                lines.append("")
-                lines.extend(notifications)
-
-            # The reopen hint is appended on the GUI thread, which knows
-            # whether it has already been shown this session.
+            # Notifications and the reopen hint are added on the GUI thread,
+            # which knows what this session has already shown.
             wx.CallAfter(self._import_finish, success, "\n".join(lines),
-                         display_id, bool(result.get("symbol")))
+                         display_id, bool(result.get("symbol")),
+                         result.get("notifications") or [],
+                         bool(result.get("restart_required")))
 
         except Exception as e:
             logger.error(f"Import failed: {e}", exc_info=True)
@@ -1173,9 +1170,17 @@ class LCSCManagerSearchDialog(wx.Dialog):
             self._import_progress.Update(value, message)
 
     def _import_finish(self, success, message, lcsc_id=None,
-                       imported_symbol=False):
+                       imported_symbol=False, notifications=(),
+                       restart_required=False):
         """Show final result inside the progress dialog (called on main thread)"""
-        if success and self.session.record(lcsc_id, imported_symbol):
+        fresh = self.session.new_notifications(notifications)
+        if fresh:
+            message += "\n\n" + "\n".join(fresh)
+        # A restart notice already tells the user what to do, and restarting
+        # reloads the schematic editor too, so the generic hint would only
+        # repeat it.
+        if (success and self.session.record(lcsc_id, imported_symbol)
+                and not restart_required):
             message += "\n" + REOPEN_HINT
 
         if self._import_progress:

@@ -681,12 +681,15 @@ class LCSCManagerDialog(wx.Dialog):
                         message_parts.append(f"  - {error}")
 
                 # Add reload notification
-                notifications = results.get("notifications", [])
-                if notifications:
+                fresh = self.session.new_notifications(
+                    results.get("notifications", []))
+                if fresh:
                     message_parts.append("")
-                    message_parts.extend(notifications)
+                    message_parts.extend(fresh)
 
-                if self.session.record(lcsc_id, bool(results.get("symbol"))):
+                # A restart notice already covers the schematic editor.
+                if (self.session.record(lcsc_id, bool(results.get("symbol")))
+                        and not results.get("restart_required")):
                     message_parts.append("\n" + REOPEN_HINT)
 
                 wx.MessageBox(

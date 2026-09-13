@@ -7,7 +7,7 @@ editor" hint stay consistent between them.
 
 Kept free of wx imports so it can be unit-tested outside KiCad.
 """
-from typing import List
+from typing import Iterable, List
 
 # Shown once per session, after the first import that actually wrote a symbol.
 # KiCad caches symbol libraries at editor start, so a newly imported symbol
@@ -26,6 +26,7 @@ class ImportSession:
     def __init__(self):
         self.imported_ids: List[str] = []
         self._reopen_hint_shown = False
+        self._shown_notifications: set = set()
 
     def record(self, lcsc_id: str, imported_symbol: bool = False) -> bool:
         """Record one successful import.
@@ -47,6 +48,19 @@ class ImportSession:
             self._reopen_hint_shown = True
             return True
         return False
+
+    def new_notifications(self, notifications: Iterable[str]) -> List[str]:
+        """The notifications not shown yet this session; each appears once.
+
+        A library KiCad hasn't loaded stays unloaded for the rest of the
+        session, so its notice would otherwise repeat on every import.
+        """
+        fresh = []
+        for note in notifications:
+            if note not in self._shown_notifications:
+                self._shown_notifications.add(note)
+                fresh.append(note)
+        return fresh
 
     @property
     def count(self) -> int:

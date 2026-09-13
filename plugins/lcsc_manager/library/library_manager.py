@@ -40,6 +40,9 @@ class LibraryManager:
         """
         self.project_path = project_path
         self._kicad_config_dir = kicad_config_dir
+        # Set while updating library tables when KiCad's running session
+        # won't see a library until the project is reopened / KiCad restarts.
+        self._restart_pending = False
         self.config = get_config()
         self.logger = get_logger("library_manager")
 
@@ -145,6 +148,10 @@ class LibraryManager:
             # Update library tables
             notifications = self._update_library_tables()
             results["notifications"] = notifications
+            # Tells the dialogs a reopen/restart notice is already in
+            # `notifications`, so the generic "reopen the schematic editor"
+            # hint would only repeat it.
+            results["restart_required"] = self._restart_pending
 
             results["success"] = (
                 (not import_symbol or results["symbol"] is not None) and
@@ -280,6 +287,7 @@ class LibraryManager:
             List of user notification messages (e.g., reload instructions)
         """
         self.logger.info("Updating library tables")
+        self._restart_pending = False
         if self.config.is_shared_library():
             return self._register_shared_libraries()
 
@@ -365,6 +373,7 @@ class LibraryManager:
                     f"the shared one yourself: {uri}.")
 
         if changed:
+            self._restart_pending = True
             notifications.append(
                 "The shared LCSC library is now registered in KiCad's global "
                 "library tables. Restart KiCad for it to appear in every project.")
@@ -434,8 +443,11 @@ class LibraryManager:
         lib_name = self.config.get("footprint_lib_nickname")
         lib_uri = self.config.get_kiprjmod_uris()["footprint_lib"]
 
-        # Try pcbnew API first (updates in-memory, immediately available)
-        if HAS_PCBNEW:
+        # Try pcbnew API first (updates in-memory, immediately available).
+        # KiCad 10 no longer wraps FP_LIB_TABLE / PROJECT for Python, so the
+        # attempt can only fail there — skip it rather than logging a
+        # warning on every import.
+        if HAS_PCBNEW and hasattr(pcbnew, "FP_LIB_TABLE_ROW"):
             try:
                 registered = self._register_fp_lib_via_pcbnew(lib_name, lib_uri)
                 if registered:
@@ -447,8 +459,41 @@ class LibraryManager:
             except Exception as e:
                 self.logger.warning(f"pcbnew API registration failed, falling back to file: {e}")
 
-        # Fallback: file-based approach
-        return self._update_footprint_lib_table_file(lib_name, lib_uri)
+        # File-based: the only route on KiCad 10.
+        notice = self._update_footprint_lib_table_file(lib_name, lib_uri)
+        # Only worth saying when there are footprints to place: KiCad 10
+        # leaves a library whose folder doesn't exist out of its list even
+        # after the project is reopened (e.g. a symbol-only import).
+        if (notice is None and self.footprint_lib_path.exists()
+                and not self._fp_library_visible(lib_name)):
+            # Written to disk, but this session loaded the project's tables
+            # when the project opened and has no way to reload them from
+            # Python, so the footprints can't be placed yet. Verified on
+            # KiCad 10.0.6: invisible until the project is reopened, then
+            # listed by pcbnew.GetFootprintLibraries().
+            self._restart_pending = True
+            return ("This KiCad session hasn't loaded the LCSC footprint "
+                    "library yet. Reopen this project (or restart KiCad) to "
+                    "place the imported footprints.")
+        return notice
+
+    def _fp_library_visible(self, nickname: str) -> bool:
+        """Whether the running pcbnew already knows a footprint library.
+
+        Answers True when it can't tell (outside KiCad, or an API without
+        GetFootprintLibraries), so a guess never produces a false alarm.
+        """
+        if not HAS_PCBNEW or not hasattr(pcbnew, "GetFootprintLibraries"):
+            return True
+        try:
+            libraries = [str(name) for name in pcbnew.GetFootprintLibraries()]
+        except Exception as e:
+            self.logger.debug(f"GetFootprintLibraries failed: {e}")
+            return True
+        visible = nickname in libraries
+        self.logger.info(f"Footprint library {nickname} visible to this "
+                         f"session: {visible}")
+        return visible
 
     def _register_fp_lib_via_pcbnew(self, lib_name: str, lib_uri: str) -> bool:
         """

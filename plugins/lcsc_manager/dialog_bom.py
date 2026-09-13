@@ -257,7 +257,8 @@ class BomImportDialog(wx.Dialog):
             lines.append("")
 
         options = getattr(self, "_last_options", None)
-        if ok and (options is None or options.import_symbol):
+        if (ok and (options is None or options.import_symbol)
+                and not summary.restart_required):
             lines.append(REOPEN_HINT)
 
         dlg = _SummaryDialog(self, "BOM import complete", "\n".join(lines))
