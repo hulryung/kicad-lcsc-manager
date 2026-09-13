@@ -152,6 +152,24 @@ class _FakeLib:
         }
 
 
+def test_importer_passes_on_library_notifications():
+    """Messages such as "restart KiCad" after the shared library is first
+    registered must reach the batch summary, once each."""
+    class _NotifyingLib(_FakeLib):
+        def import_component(self, *args, **kwargs):
+            result = super().import_component(*args, **kwargs)
+            result["notifications"] = ["Restart KiCad."] if len(self.imported) == 1 else []
+            if len(self.imported) == 2:
+                result["notifications"] = ["Restart KiCad.", "Conflict."]
+            return result
+
+    entries = [BomEntry("C1"), BomEntry("C2"), BomEntry("C3")]
+    importer = BomImporter(_FakeApi(known={"C1", "C2", "C3"}), _NotifyingLib())
+    summary = importer.import_entries(entries, BomImportOptions())
+    assert summary.notifications == ["Restart KiCad.", "Conflict."], summary.notifications
+    print("test_importer_passes_on_library_notifications: PASS")
+
+
 def test_importer_happy_and_missing():
     entries = [BomEntry("C1"), BomEntry("C2"), BomEntry("C3")]
     api = _FakeApi(known={"C1", "C3"})
@@ -272,6 +290,7 @@ if __name__ == "__main__":
     test_title_row_with_lcsc_is_not_header()
     test_mpn_in_lcsc_column_not_extracted()
     test_headerless_id_list_keeps_all_parts()
+    test_importer_passes_on_library_notifications()
     test_importer_happy_and_missing()
     test_importer_cancel()
     test_importer_rate_limit_aborts_batch()

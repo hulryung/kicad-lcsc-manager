@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Adds a shared library location — the feature requested in [#20](https://github.com/hulryung/kicad-lcsc-manager/issues/20): import every part into one folder that all projects use.
+
+### Added
+- **One shared library folder for all projects.** The Settings dialog has a new **Library location** choice: *Inside each project* (the existing behaviour, still the default) or *One shared folder for all projects*. In the shared location every import lands in a single folder, and its libraries are registered in KiCad's **global** library tables, so parts imported from one project are available in every other one — no per-project copies.
+  - The folder may be a full path (`~/KiCad/lcsc`, `C:\KiCadLibs\lcsc`) or use a KiCad path variable (`${MY_LIBS}/lcsc`). A variable is kept verbatim in the library tables and in footprints' 3D model references, so they survive the folder moving or the project being opened elsewhere; `~` is expanded, since KiCad doesn't expand it. An undefined variable is rejected with a pointer to *Preferences → Configure Paths*.
+  - Shared libraries use their own nicknames, `lcsc_shared` and `lcsc_shared_footprints`, so a project that still has per-project `lcsc_imported` / `lcsc_footprints` entries can't shadow them (project tables win over global on a name clash). Symbols' Footprint fields point at `lcsc_shared_footprints:`.
+  - A project can override the location, e.g. a team repository that commits its own libraries. The shared folder itself is always saved to Global — it is a location on this computer and must not end up in a committed project file.
+  - The dialog disables whichever field the chosen location doesn't use, validates the folder, has a **Browse…** button, and the preview shows the resolved paths and where the libraries get registered. The import dialogs' destination line says when the shared folder is in use.
+- **Careful edits to KiCad's global library tables** (`library/lib_table.py`). Only a file that already is a library table of the right kind is edited; an entry with our nickname that LCSC Manager didn't create is never modified (the user is told instead); the first edit leaves `sym-lib-table.lcsc_manager.bak` / `fp-lib-table.lcsc_manager.bak` beside the table; writes replace the file atomically; and our own entry follows the shared folder if it moves. Registration is idempotent and runs on every import, so an entry KiCad drops — it rewrites its global tables from memory when libraries are edited in the same session — is restored by the next import.
+- `tests/test_shared_library.py` — 24 offline tests: paths, URIs and nicknames in both locations, `~` and `${VAR}` handling, rejection of unusable folders, the shared folder never reaching a project file, per-project opt-out, the table editor (create, add beside KiCad 10's default rows, idempotence, following a moved folder, leaving foreign rows and non-table files alone, one-time backup, escaping), and LibraryManager's global registration, conflict reporting and manual-setup fallback.
+
+### Fixed
+- **BOM import dropped library-table messages.** The batch importer discarded each part's `notifications`, so warnings about registering the libraries never reached the user — and with the shared location, a first import done as a BOM batch would never say that KiCad needs restarting, or that a name clash blocked registration. They are now collected (once each) and shown in the BOM summary.
+- A shared folder typed in another OS's form (e.g. `C:\KiCadLibs\lcsc` on macOS) is rejected instead of being taken as relative to KiCad's working directory, and a hand-edited project file can't set the shared folder.
+
+### Notes
+- KiCad reads its global library tables at startup, so the shared library appears in other projects after KiCad is restarted once; the first shared import says so.
+- Verified by importing parts from two projects into one shared folder against the live API: both land in the folder, the global tables get one entry each (the second project changes nothing), and neither project gets a `libs/` folder or table entries. KiCad's own parsers accept the result: `pcbnew.FootprintLoad` loads the shared footprint with its absolute 3D path, and `kicad-cli sym export svg` plots the shared symbols.
+
 ## [0.7.2] - 2026-09-13
 
 Resolves [#20](https://github.com/hulryung/kicad-lcsc-manager/issues/20): Global settings looked unsaved and could be silently overridden by the project.

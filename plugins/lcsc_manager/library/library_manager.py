@@ -12,6 +12,8 @@ from ..utils.config import get_config
 from ..converters.symbol_converter import SymbolConverter
 from ..converters.footprint_converter import FootprintConverter
 from ..converters.model_3d_converter import Model3DConverter
+from .lib_table import (ensure_lib_entry, LibTableError, ADDED, UPDATED,
+                        CONFLICT)
 
 logger = get_logger()
 
@@ -25,14 +27,19 @@ except ImportError:
 class LibraryManager:
     """Manage KiCad project libraries"""
 
-    def __init__(self, project_path: Path):
+    def __init__(self, project_path: Path,
+                 kicad_config_dir: Optional[Path] = None):
         """
         Initialize library manager
 
         Args:
             project_path: Path to KiCad project file
+            kicad_config_dir: KiCad's user settings folder (holds the global
+                library tables). Looked up from KiCad when omitted; tests
+                pass a temporary folder.
         """
         self.project_path = project_path
+        self._kicad_config_dir = kicad_config_dir
         self.config = get_config()
         self.logger = get_logger("library_manager")
 
@@ -50,7 +57,7 @@ class LibraryManager:
         # whatever library path the user configured.
         self.symbol_converter = SymbolConverter()
         self.footprint_converter = FootprintConverter(
-            model_uri_base=self.config.get_kiprjmod_uris()["model_3d_dir"]
+            model_uri_base=self.config.get_library_uris()["model_3d_dir"]
         )
         self.model_3d_converter = Model3DConverter()
 
@@ -79,6 +86,14 @@ class LibraryManager:
             Exception: If import fails
         """
         self.logger.info(f"Importing component: {component_info.get('lcsc_id')}")
+
+        if self.lib_base_path is None:
+            # Only reachable with a shared location whose folder is unset or
+            # uses a ${VAR} KiCad doesn't define (the Settings dialog refuses
+            # to save that, but the variable can disappear later).
+            raise RuntimeError(
+                "The shared library folder isn't set, or uses a path variable "
+                "KiCad doesn't define. Fix it under ⚙ Settings.")
 
         # Find footprint library nickname from project's fp-lib-table
         footprint_lib_nickname = self._get_footprint_lib_nickname()
@@ -265,6 +280,9 @@ class LibraryManager:
             List of user notification messages (e.g., reload instructions)
         """
         self.logger.info("Updating library tables")
+        if self.config.is_shared_library():
+            return self._register_shared_libraries()
+
         notifications = []
 
         try:
@@ -285,6 +303,71 @@ class LibraryManager:
                 "Please add libraries manually via Preferences > Manage Libraries."
             )
 
+        return notifications
+
+    def kicad_config_dir(self) -> Optional[Path]:
+        """KiCad's user settings folder, where the global library tables live."""
+        if self._kicad_config_dir is not None:
+            return self._kicad_config_dir
+        if HAS_PCBNEW:
+            try:
+                return Path(pcbnew.SETTINGS_MANAGER.GetUserSettingsPath())
+            except Exception as e:
+                self.logger.warning(f"Could not get KiCad settings path: {e}")
+        return None
+
+    def _register_shared_libraries(self) -> List[str]:
+        """Register the shared library in KiCad's global library tables, so
+        every project can use it (issue #20).
+
+        KiCad reads the global tables at startup, so a newly registered
+        library shows up after a restart. Registration runs on every import
+        and is idempotent: if KiCad later rewrites its global table from
+        memory without our row, the next import puts it back.
+        """
+        nicknames = self.config.get_library_nicknames()
+        uris = self.config.get_library_uris()
+        config_dir = self.kicad_config_dir()
+        if config_dir is None:
+            return [
+                "Couldn't locate KiCad's global library tables. Add the shared "
+                "library under Preferences → Manage Symbol/Footprint Libraries "
+                f"(Global tab): {nicknames['symbol']} → {uris['symbol_lib']}, "
+                f"{nicknames['footprint']} → {uris['footprint_lib']}."
+            ]
+
+        notifications = []
+        changed = False
+        for kind, table, nickname, uri, descr, editor in (
+            ("sym", "sym-lib-table", nicknames["symbol"], uris["symbol_lib"],
+             "shared symbols", "Symbol"),
+            ("fp", "fp-lib-table", nicknames["footprint"], uris["footprint_lib"],
+             "shared footprints", "Footprint"),
+        ):
+            try:
+                outcome = ensure_lib_entry(config_dir / table, kind, nickname,
+                                           uri, descr)
+            except (LibTableError, OSError) as e:
+                self.logger.error(f"Could not update global {table}: {e}")
+                notifications.append(
+                    f"Couldn't update KiCad's global {table} ({e}). Add it under "
+                    f"Preferences → Manage {editor} Libraries (Global tab): "
+                    f"{nickname} → {uri}.")
+                continue
+            self.logger.info(f"Global {table}: {nickname} {outcome}")
+            if outcome in (ADDED, UPDATED):
+                changed = True
+            elif outcome == CONFLICT:
+                notifications.append(
+                    f"KiCad's global {editor.lower()} library table already has "
+                    f'a library named "{nickname}" that LCSC Manager didn\'t '
+                    "create, so it was left alone. Rename that library, or add "
+                    f"the shared one yourself: {uri}.")
+
+        if changed:
+            notifications.append(
+                "The shared LCSC library is now registered in KiCad's global "
+                "library tables. Restart KiCad for it to appear in every project.")
         return notifications
 
     def _update_symbol_lib_table(self) -> Optional[str]:
@@ -473,6 +556,11 @@ class LibraryManager:
             Library nickname (e.g., "lcsc_footprints")
             Falls back to config default if not found
         """
+        # The shared library is registered under its own nickname in the
+        # global table; the project's fp-lib-table has nothing to say.
+        if self.config.is_shared_library():
+            return self.config.get_library_nicknames()["footprint"]
+
         lib_table_path = self.project_path.parent / "fp-lib-table"
 
         # If fp-lib-table doesn't exist yet, return config default
