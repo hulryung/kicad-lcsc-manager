@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.1] - 2026-09-13
 
 ### Fixed
 - **KiCad 10: a project's newly imported footprints couldn't be placed, and nothing said why.** KiCad 10 no longer wraps `FP_LIB_TABLE` / `PROJECT` for Python, so the in-memory registration used on KiCad 9 always failed (logging a warning on every import) and the plugin fell back to writing `fp-lib-table` — which the running session doesn't reread. Verified on KiCad 10.0.6: straight after an import `pcbnew.GetFootprintLibraries()` doesn't list `lcsc_footprints`; after reopening the project it does. The plugin now skips the doomed API call on KiCad 10, checks whether the session actually sees the library, and only if it doesn't says: *"This KiCad session hasn't loaded the LCSC footprint library yet. Reopen this project (or restart KiCad) to place the imported footprints."* KiCad 9 keeps its immediate in-memory registration. No notice is shown when there are no footprints to place (a symbol-only import) — KiCad 10 leaves a library with no folder out of its list even after a reopen — or when the plugin can't tell (outside KiCad).
