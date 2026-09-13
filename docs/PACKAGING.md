@@ -387,16 +387,28 @@ See `.github/workflows/release.yml` for automated packaging on version tag push.
    - Build the package ZIP
    - Calculate SHA256
    - Create GitHub Release
-   - Update metadata files
-   - Commit and push updates
+   - Record the release in `metadata.json`, `packages.json` and
+     `repository.json` on `main` (`scripts/publish-metadata.sh`)
 
 ### Workflow Features
 
-- Triggered by `v*.*.*` tags
-- Excludes `__pycache__` and `.pyc` files
+- Triggered by `v*.*.*` tags; one release runs at a time
+- Excludes `__pycache__` and `.pyc` files, and fails if any slip into the ZIP
 - Validates package structure
-- Updates all metadata files
 - Creates GitHub Release with notes
+- Updates the metadata on the **latest `main`**, not on the tagged commit.
+  A tag can lag behind `main` — e.g. when the previous release's metadata
+  commit wasn't pulled before tagging — and pushing the tag's tree would
+  then be rejected, or drop entries `main` already has. A push rejected
+  because `main` moved is retried on the new `main`; if it still can't be
+  published the run **fails**, rather than going green while the PCM never
+  lists the release (which is what happened to v0.7.1). Re-running the
+  workflow for a release that's already recorded changes nothing.
+- Warns when the tagged commit's `__version__` doesn't match the tag. The
+  package always gets the tag's version; `main` is not modified.
+
+After a release, pull before your next change: the workflow adds an
+"Update metadata for release vX.Y.Z" commit to `main`.
 
 ## Testing
 

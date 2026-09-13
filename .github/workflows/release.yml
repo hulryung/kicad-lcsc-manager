@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+# One release at a time: each run appends to the metadata on main.
+concurrency:
+  group: release-metadata
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -33,6 +38,9 @@ jobs:
 
       - name: Update version in __init__.py
         run: |
+          if ! grep -q "__version__ = \"${{ steps.version.outputs.version }}\"" plugins/lcsc_manager/__init__.py; then
+            echo "::warning::The tagged commit's __version__ isn't ${{ steps.version.outputs.version }}; the package gets the tag's version, but main's __init__.py is left as it is."
+          fi
           sed -i "s/__version__ = \".*\"/__version__ = \"${{ steps.version.outputs.version }}\"/" plugins/lcsc_manager/__init__.py
           cat plugins/lcsc_manager/__init__.py | grep __version__
 
@@ -101,8 +109,12 @@ jobs:
           echo "=== Package contents (first 40 lines) ==="
           unzip -l release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip | head -40
           echo ""
-          echo "=== Checking for __pycache__ (should be empty) ==="
-          unzip -l release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip | grep -i pycache || echo "✓ No pycache files found"
+          echo "=== Checking for __pycache__ ==="
+          if unzip -l release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip | grep -i pycache; then
+            echo "::error::The package contains __pycache__ entries (listed above)."
+            exit 1
+          fi
+          echo "✓ No pycache files found"
 
       - name: Calculate package SHA256 and size
         id: package
@@ -113,133 +125,6 @@ jobs:
           echo "size=$SIZE" >> $GITHUB_OUTPUT
           echo "Package SHA256: $SHA256"
           echo "Package Size: $SIZE bytes"
-
-      - name: Update metadata.json (repository root)
-        run: |
-          python3 << 'PYTHON_SCRIPT'
-          import json
-          import sys
-
-          version = "${{ steps.version.outputs.version }}"
-          sha256 = "${{ steps.package.outputs.sha256 }}"
-          size = int("${{ steps.package.outputs.size }}")
-
-          # Read existing metadata
-          with open('metadata.json', 'r') as f:
-              metadata = json.load(f)
-
-          # Check if version already exists
-          existing_versions = [v['version'] for v in metadata['versions']]
-
-          # Create new version entry
-          new_version = {
-              "version": version,
-              "status": "stable",
-              "kicad_version": "9.0",
-              "download_url": f"https://github.com/hulryung/kicad-lcsc-manager/releases/download/v{version}/kicad-lcsc-manager-{version}.zip",
-              "download_sha256": sha256,
-              "download_size": size,
-              "install_size": 250000
-          }
-
-          # Update or add version
-          if version in existing_versions:
-              # Update existing version
-              for i, v in enumerate(metadata['versions']):
-                  if v['version'] == version:
-                      metadata['versions'][i] = new_version
-                      break
-          else:
-              # Add new version at the beginning
-              metadata['versions'].insert(0, new_version)
-
-          # Write updated metadata
-          with open('metadata.json', 'w') as f:
-              json.dump(metadata, f, indent=2)
-              f.write('\n')
-
-          print(f"✓ Updated metadata.json with version {version}")
-          PYTHON_SCRIPT
-
-      - name: Update packages.json
-        run: |
-          python3 << 'PYTHON_SCRIPT'
-          import json
-
-          version = "${{ steps.version.outputs.version }}"
-          sha256 = "${{ steps.package.outputs.sha256 }}"
-          size = int("${{ steps.package.outputs.size }}")
-
-          # Read existing packages
-          with open('packages.json', 'r') as f:
-              packages_data = json.load(f)
-
-          # Update first package (should only be one)
-          package = packages_data['packages'][0]
-
-          # Check if version exists
-          existing_versions = [v['version'] for v in package['versions']]
-
-          new_version = {
-              "version": version,
-              "status": "stable",
-              "kicad_version": "9.0",
-              "download_url": f"https://github.com/hulryung/kicad-lcsc-manager/releases/download/v{version}/kicad-lcsc-manager-{version}.zip",
-              "download_sha256": sha256,
-              "download_size": size,
-              "install_size": 250000
-          }
-
-          if version in existing_versions:
-              for i, v in enumerate(package['versions']):
-                  if v['version'] == version:
-                      package['versions'][i] = new_version
-                      break
-          else:
-              package['versions'].insert(0, new_version)
-
-          # Write updated packages
-          with open('packages.json', 'w') as f:
-              json.dump(packages_data, f, indent=2)
-              f.write('\n')
-
-          print(f"✓ Updated packages.json with version {version}")
-          PYTHON_SCRIPT
-
-      - name: Update repository.json
-        run: |
-          python3 << 'PYTHON_SCRIPT'
-          import json
-          import hashlib
-          from datetime import datetime
-
-          # Calculate packages.json SHA256
-          with open('packages.json', 'rb') as f:
-              packages_sha256 = hashlib.sha256(f.read()).hexdigest()
-
-          # Get current UTC time
-          now = datetime.utcnow()
-          update_time = now.strftime('%Y-%m-%d %H:%M:%S')
-          update_timestamp = int(now.timestamp())
-
-          # Read repository.json
-          with open('repository.json', 'r') as f:
-              repo = json.load(f)
-
-          # Update packages info
-          repo['packages']['sha256'] = packages_sha256
-          repo['packages']['update_time_utc'] = update_time
-          repo['packages']['update_timestamp'] = update_timestamp
-
-          # Write updated repository.json
-          with open('repository.json', 'w') as f:
-              json.dump(repo, f, indent=2)
-              f.write('\n')
-
-          print(f"✓ Updated repository.json")
-          print(f"  packages.json SHA256: {packages_sha256}")
-          print(f"  Update time: {update_time}")
-          PYTHON_SCRIPT
 
       - name: Generate release notes
         id: release_notes
@@ -277,13 +162,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Commit metadata updates
+      # Updates metadata.json / packages.json / repository.json on the latest
+      # main — not the tag's tree, which can lag behind it — and fails the run
+      # if it can't. See scripts/publish-metadata.sh.
+      - name: Publish metadata to main
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add metadata.json packages.json repository.json plugins/lcsc_manager/__init__.py
-          git commit -m "Update metadata for release ${{ steps.version.outputs.tag }}" || echo "No changes to commit"
-          git push origin HEAD:main || echo "Nothing to push"
+          ./scripts/publish-metadata.sh "${{ steps.version.outputs.version }}" \
+            "release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip"
 
       - name: Summary
         run: |
