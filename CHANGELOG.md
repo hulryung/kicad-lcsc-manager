@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Release workflow: a rejected metadata push went unnoticed.** The last step pushed the tag's tree to `main` with `git push origin HEAD:main || echo "Nothing to push"`. When the tag lagged behind `main` — v0.7.1 was tagged before the v0.7.0 metadata commit had been pulled — the push was rejected, the run still went green, and the PCM never listed the release until the metadata was fixed by hand. The metadata step now lives in `scripts/publish-metadata.sh`: it updates a fresh worktree of the latest `main` (so entries already on `main` are never lost), retries if `main` moves during the run, fails the job if it still can't publish, and does nothing when re-run for a release that's already recorded. The workflow's three inline copies of `scripts/update-metadata.py` are gone, and releases run one at a time.
+- **Release workflow: the `__pycache__` check never failed.** `grep … || echo "✓ No pycache files found"` printed any offending entries and carried on. It now fails the run.
+- The workflow warns when the tagged commit's `__version__` doesn't match the tag, instead of silently committing the corrected `__init__.py` to `main`.
+
+### Added
+- `tests/test_publish_metadata.py` — exercises the publish step against real git repositories (a bare origin and clones): publishing on top of `main`, a tag that lags behind `main` keeping `main`'s entries, a rejected push being retried, a persistent failure failing loudly without touching `main`, an idempotent re-run, no leftover worktree, and checks that the workflow no longer swallows failures.
+
 ## [0.8.1] - 2026-09-13
 
 ### Fixed
