@@ -12,8 +12,8 @@ next level. A project override is loaded explicitly via
 load_project_overrides() once the project path is known.
 """
 import json
-from pathlib import Path
-from typing import Any, Dict, Optional, cast
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Any, Dict, List, Optional, cast
 from .logger import get_logger
 
 logger = get_logger()
@@ -24,6 +24,36 @@ PROJECT_CONFIG_FILENAME = ".lcsc_manager.json"
 # Keys that participate in the layered resolution. Other keys (e.g.
 # api_timeout) live only at global scope.
 PATH_KEYS = ("library_path", "symbol_lib_name", "footprint_lib_name", "model_3d_path")
+
+
+def _is_absolute_on_any_os(raw: str) -> bool:
+    """True for anything that is not a plain relative path on *some* OS.
+
+    Checking only for a leading "/" (as the Settings dialog used to) let a
+    Windows drive path such as "C:\\libs" through, which then produced a
+    broken "${KIPRJMOD}/C:\\libs/..." library-table URI (issue #20).
+    """
+    if raw.startswith(("/", "\\", "~")):
+        return True
+    win = PureWindowsPath(raw)
+    return bool(win.drive) or win.is_absolute() or PurePosixPath(raw).is_absolute()
+
+
+def validate_path_value(key: str, raw: str) -> Optional[str]:
+    """Return an error message for a Settings field value, or None if valid.
+
+    Every path value is relative to the project folder, so it must not be
+    empty, absolute, or climb out with "..". Both separators are honoured,
+    since a project may be opened on Windows and macOS/Linux alike.
+    """
+    if not raw:
+        return "must not be empty."
+    if _is_absolute_on_any_os(raw):
+        return ("must be a project-relative path "
+                "(no drive letter, leading / or \\, or ~).")
+    if ".." in PureWindowsPath(raw).parts:  # splits on both / and \\
+        return "must not contain '..'."
+    return None
 
 
 class Config:
@@ -172,6 +202,64 @@ class Config:
                     logger.error(f"Failed to remove project overrides: {e}")
         else:
             raise ValueError(f"Unknown scope: {scope}")
+
+    def save_global_settings(self, values: Dict[str, Any]) -> None:
+        """Save Settings-dialog values at global scope, storing only what
+        differs from the built-in defaults. A value typed back to its default
+        is removed, so it keeps tracking future default changes and the scope
+        summary stays honest ("default" rather than "global")."""
+        for key, value in values.items():
+            if str(value) == str(self.DEFAULT_CONFIG.get(key)):
+                self._global.pop(key, None)
+            else:
+                self._global[key] = value
+        self.save()
+
+    def save_project_settings(self, values: Dict[str, Any],
+                              project_path: Optional[Path] = None) -> Dict[str, Any]:
+        """Save Settings-dialog values at project scope, storing only what
+        differs from the value the project would inherit (Global, else
+        Default).
+
+        Writing every field — inherited ones included — used to pin the whole
+        layout to the project, so any later Global change silently had no
+        effect on it (issue #20). Keys left equal to the inherited value keep
+        following Global. Non-path keys already in the project file are kept.
+        If nothing is left to store, the project file is removed.
+
+        Returns the path values that were stored.
+        """
+        diff = {}
+        for key, value in values.items():
+            inherited, _source = self.resolve_for_scope_view(key, "global")
+            if str(value) != str(inherited):
+                diff[key] = value
+
+        stored = {k: v for k, v in self._project.items() if k not in PATH_KEYS}
+        stored.update(diff)
+        if stored:
+            self.save_scope("project", stored, project_path)
+        else:
+            self.clear_scope("project", project_path)
+        return diff
+
+    def project_override_keys(self) -> List[str]:
+        """Path keys the open project overrides — i.e. keys on which Global
+        settings have no effect for this project."""
+        return [k for k in PATH_KEYS if k in self._project]
+
+    def default_edit_scope(self, project_open: bool) -> str:
+        """Scope the Settings dialog should open in: the one that actually
+        supplies the effective settings.
+
+        The dialog used to open on "This project only" whenever a project was
+        open, whatever had been saved. After saving at Global, reopening
+        showed the project view — so the save looked lost (issue #20) — and
+        the next Save then wrote a project override that shadowed Global.
+        """
+        if project_open and self.get_active_scope_summary() in ("project", "mixed"):
+            return "project"
+        return "global"
 
     # ─── value resolution ────────────────────────────────────────────
 

@@ -4,7 +4,7 @@ SettingsDialog — edit LCSC Manager library paths at global or project scope.
 Layout (top-down):
     [ 4 path fields, each with a value-source badge ]
     [ Preview block: resolved paths + existence indicators ]
-    [ Scope radio: Global / This project only ]
+    [ Scope radio: Global / This project only, + override notice ]
     [ Warning label: changes apply to future imports only ]
     [ Save / Reset this scope / Cancel buttons ]
 
@@ -16,7 +16,7 @@ from typing import Dict, Optional
 
 import wx
 
-from .utils.config import Config, PATH_KEYS
+from .utils.config import Config, PATH_KEYS, validate_path_value
 
 
 FIELD_LABELS = {
@@ -47,8 +47,11 @@ class SettingsDialog(wx.Dialog):
         self.preview_status: Dict[str, wx.StaticText] = {}
 
         self._build_ui()
-        # Default scope: project if a project is open, else global.
-        self._set_scope("project" if project_path else "global")
+        # Open on the scope that actually supplies the settings in effect.
+        # Always opening on "This project only" made a Global save look lost
+        # when the dialog was reopened, and invited a project Save that then
+        # shadowed Global (issue #20).
+        self._set_scope(self.config.default_edit_scope(project_path is not None))
 
     # ─── UI construction ────────────────────────────────────────────
 
@@ -71,7 +74,15 @@ class SettingsDialog(wx.Dialog):
             grid.Add(badge, 0, wx.ALIGN_CENTER_VERTICAL)
             self.field_controls[key] = (ctrl, badge)
 
-        main.Add(grid, 0, wx.ALL | wx.EXPAND, 12)
+        main.Add(grid, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.EXPAND, 12)
+
+        hint = wx.StaticText(
+            self,
+            label="Paths are relative to each project's folder, so every "
+                  "project keeps its own copy of the libraries.",
+        )
+        hint.SetForegroundColour(wx.Colour(100, 100, 100))
+        main.Add(hint, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 12)
 
         # Preview block
         preview_box = wx.StaticBox(self, label="Preview")
@@ -104,15 +115,18 @@ class SettingsDialog(wx.Dialog):
 
         main.Add(pv_sizer, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 
-        # Scope radio
-        scope_box = wx.StaticBox(self, label="Scope")
+        # Scope radio. This picks where the *settings* are stored — it does not
+        # move the libraries anywhere; "Global" read as "one shared folder"
+        # otherwise (issue #20).
+        scope_box = wx.StaticBox(self, label="Save these settings to")
         scope_sizer = wx.StaticBoxSizer(scope_box, wx.VERTICAL)
 
         self.radio_global = wx.RadioButton(
-            self, label="Global (all projects)", style=wx.RB_GROUP
+            self, label="Global — the default for every project",
+            style=wx.RB_GROUP
         )
         self.radio_project = wx.RadioButton(
-            self, label="This project only"
+            self, label="This project only — overrides Global for this project"
         )
         self.radio_global.Bind(wx.EVT_RADIOBUTTON, self._on_scope_change)
         self.radio_project.Bind(wx.EVT_RADIOBUTTON, self._on_scope_change)
@@ -122,6 +136,12 @@ class SettingsDialog(wx.Dialog):
 
         scope_sizer.Add(self.radio_global, 0, wx.ALL, 4)
         scope_sizer.Add(self.radio_project, 0, wx.ALL, 4)
+
+        # Explains what a Save in the current scope will actually do for the
+        # open project — above all, when a project override makes Global
+        # changes have no effect here.
+        self.scope_notice = wx.StaticText(self, label="")
+        scope_sizer.Add(self.scope_notice, 0, wx.ALL | wx.EXPAND, 4)
         main.Add(scope_sizer, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 
         # Warning
@@ -214,12 +234,42 @@ class SettingsDialog(wx.Dialog):
                 self,
             )
             return
+        scope = self._current_scope()
         try:
-            self.config.save_scope(self._current_scope(), values, self.project_path)
+            if scope == "project":
+                self.config.save_project_settings(values, self.project_path)
+            else:
+                self.config.save_global_settings(values)
         except Exception as e:
             wx.MessageBox(f"Save failed: {e}", "Error", wx.OK | wx.ICON_ERROR, self)
             return
+
+        if scope == "global" and self.project_path is not None:
+            self._offer_to_drop_project_overrides()
         self.EndModal(wx.ID_OK)
+
+    def _offer_to_drop_project_overrides(self) -> None:
+        """After a Global save, point out project overrides that stop it from
+        applying here, and offer to remove them (issue #20)."""
+        keys = self.config.project_override_keys()
+        if not keys:
+            return
+        fields = "\n".join(f"• {FIELD_LABELS[k].rstrip(':')}" for k in keys)
+        answer = wx.MessageBox(
+            "Saved to Global.\n\n"
+            "This project has its own settings (.lcsc_manager.json) that take "
+            f"precedence over Global here:\n\n{fields}\n\n"
+            "Remove them so this project follows Global?",
+            "Project overrides Global",
+            wx.YES_NO | wx.ICON_QUESTION,
+            self,
+        )
+        if answer == wx.YES:
+            try:
+                self.config.clear_scope("project", self.project_path)
+            except Exception as e:
+                wx.MessageBox(f"Could not remove project settings: {e}",
+                              "Error", wx.OK | wx.ICON_ERROR, self)
 
     # ─── value collection / preview ────────────────────────────────
 
@@ -230,29 +280,27 @@ class SettingsDialog(wx.Dialog):
         for key in PATH_KEYS:
             ctrl, _ = self.field_controls[key]
             raw = ctrl.GetValue().strip()
-            if not raw:
-                errors[key] = "must not be empty."
-            elif raw.startswith("/") or raw.startswith("~"):
-                errors[key] = "must be a project-relative path (no leading / or ~)."
-            elif ".." in Path(raw).parts:
-                errors[key] = "must not contain '..'."
+            error = validate_path_value(key, raw)
+            if error:
+                errors[key] = error
             values[key] = raw
         return values, errors
 
     def _refresh_all(self) -> None:
         values, errors = self._collect_values()
         self._refresh_badges()
+        self._refresh_scope_notice()
         self._refresh_preview(values, errors)
         self._refresh_save_button(errors)
 
     def _refresh_badges(self) -> None:
         """Update [scope] badge per field.
 
-        [edited]                 — user typed a value that differs from what
-                                   this scope currently stores
-        [scope]                  — value comes from this scope's own storage
-        [source → scope]         — value is inherited from a lower layer and
-                                   would be written into `scope` on Save
+        [edited]         — user typed a value that differs from what this
+                           scope currently stores
+        [scope]          — value comes from this scope's own storage
+        [from source]    — value is inherited from a lower layer; Save leaves
+                           it inherited unless it is changed
         """
         scope = self._current_scope()
         for key in PATH_KEYS:
@@ -268,8 +316,29 @@ class SettingsDialog(wx.Dialog):
                 badge.SetLabel(f"[{scope}]")
                 badge.SetForegroundColour(wx.Colour(0, 110, 0))
             else:
-                badge.SetLabel(f"[{source} → {scope}]")
+                badge.SetLabel(f"[from {source}]")
                 badge.SetForegroundColour(wx.Colour(120, 120, 120))
+
+    def _refresh_scope_notice(self) -> None:
+        """Say what Save does in the current scope for the open project."""
+        scope = self._current_scope()
+        overridden = self.config.project_override_keys() if self.project_path else []
+        if scope == "global" and overridden:
+            fields = ", ".join(FIELD_LABELS[k].rstrip(":").lower() for k in overridden)
+            text = ("⚠ This project overrides Global for: " + fields +
+                    ". Global changes won't affect this project until those "
+                    "overrides are removed.")
+            colour = wx.Colour(150, 90, 0)
+        elif scope == "project":
+            text = ("Only values that differ from Global are stored for this "
+                    "project; the rest keep following Global.")
+            colour = wx.Colour(100, 100, 100)
+        else:
+            text = ""
+            colour = wx.Colour(100, 100, 100)
+        self.scope_notice.SetLabel(text)
+        self.scope_notice.SetForegroundColour(colour)
+        self.scope_notice.Wrap(740)
 
     def _refresh_preview(self, values: Dict[str, str],
                          errors: Dict[str, str]) -> None:
