@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-09-13
 
 Adds a shared library location — the feature requested in [#20](https://github.com/hulryung/kicad-lcsc-manager/issues/20): import every part into one folder that all projects use.
 
@@ -25,6 +25,7 @@ Adds a shared library location — the feature requested in [#20](https://github
 ### Notes
 - KiCad reads its global library tables at startup, so the shared library appears in other projects after KiCad is restarted once; the first shared import says so.
 - Verified by importing parts from two projects into one shared folder against the live API: both land in the folder, the global tables get one entry each (the second project changes nothing), and neither project gets a `libs/` folder or table entries. KiCad's own parsers accept the result: `pcbnew.FootprintLoad` loads the shared footprint with its absolute 3D path, and `kicad-cli sym export svg` plots the shared symbols.
+- Verified end to end in KiCad 10.0.6: importing C25804 through the plugin in one project wrote it to the shared folder, registered `lcsc_shared` / `lcsc_shared_footprints` in the real global tables and asked for a restart; after restarting, a *different* project's footprint chooser listed `lcsc_shared_footprints:C25804_R0603`, and eeschema's symbol chooser listed it under `lcsc_shared` with its Footprint field resolving to that footprint.
 
 ## [0.7.2] - 2026-09-13
 
