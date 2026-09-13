@@ -251,6 +251,11 @@ class BomImportDialog(wx.Dialog):
                 lines.append("  {id}: {err}".format(id=r.lcsc_id, err=r.error))
             lines.append("")
 
+        for note in summary.notifications:
+            lines.append(note)
+        if summary.notifications:
+            lines.append("")
+
         options = getattr(self, "_last_options", None)
         if ok and (options is None or options.import_symbol):
             lines.append(REOPEN_HINT)

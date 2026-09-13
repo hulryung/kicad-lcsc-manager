@@ -10,8 +10,17 @@ Supports layered overrides:
 Each level may contain any subset of keys; missing keys fall back to the
 next level. A project override is loaded explicitly via
 load_project_overrides() once the project path is known.
+
+Library location:
+- "project" (default) — libraries live inside each project at
+  <project>/<library_path>, referenced as ${KIPRJMOD}/... and registered in
+  the project's own library tables.
+- "shared" — one library folder for every project (shared_library_path, an
+  absolute path, ~, or a ${VAR} path), registered in KiCad's global library
+  tables (issue #20).
 """
 import json
+import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, List, Optional, cast
 from .logger import get_logger
@@ -24,6 +33,18 @@ PROJECT_CONFIG_FILENAME = ".lcsc_manager.json"
 # Keys that participate in the layered resolution. Other keys (e.g.
 # api_timeout) live only at global scope.
 PATH_KEYS = ("library_path", "symbol_lib_name", "footprint_lib_name", "model_3d_path")
+
+LOCATION_PROJECT = "project"
+LOCATION_SHARED = "shared"
+
+# Keys resolved through default < global < project. library_location can be
+# overridden per project (e.g. a team repo that commits its own libraries
+# while personal projects use the shared folder).
+LAYERED_KEYS = PATH_KEYS + ("library_location",)
+
+# A folder on *this* computer: never stored in a project file, which may be
+# committed and opened on another machine.
+GLOBAL_ONLY_KEYS = ("shared_library_path",)
 
 
 def _is_absolute_on_any_os(raw: str) -> bool:
@@ -56,6 +77,55 @@ def validate_path_value(key: str, raw: str) -> Optional[str]:
     return None
 
 
+def expand_path_vars(raw: str) -> str:
+    """Expand ${VAR} and ~ in a user-entered folder path.
+
+    Inside KiCad, pcbnew.ExpandEnvVarSubstitutions knows the path variables
+    from Preferences → Configure Paths as well as the OS environment; outside
+    it (tests), only the OS environment is available. Undefined variables are
+    left as "${NAME}" so callers can detect them. Neither expands "~".
+    """
+    expanded = raw.strip()
+    try:
+        import pcbnew  # noqa: WPS433 — only available inside KiCad
+        expanded = pcbnew.ExpandEnvVarSubstitutions(expanded, None)
+    except Exception:
+        expanded = os.path.expandvars(expanded)
+    return os.path.expanduser(expanded)
+
+
+def validate_shared_path(raw: str) -> Optional[str]:
+    """Return an error message for the shared library folder, or None."""
+    raw = raw.strip()
+    if not raw:
+        return "choose a folder for the shared library."
+    expanded = expand_path_vars(raw)
+    if "${" in expanded:
+        name = expanded.split("${", 1)[1].split("}", 1)[0]
+        return (f"uses ${{{name}}}, which KiCad doesn't define. Add it under "
+                "Preferences → Configure Paths, or enter a full path.")
+    # Absolute on *this* OS: a Windows drive path typed on macOS/Linux would
+    # otherwise be taken as relative to KiCad's working directory.
+    if not os.path.isabs(expanded):
+        example = "C:\\KiCadLibs\\lcsc" if os.name == "nt" else "~/KiCad/lcsc"
+        return f"must be a full path on this computer, such as {example}."
+    return None
+
+
+def shared_uri_root(raw: str) -> str:
+    """How the shared folder is written into library tables and footprints.
+
+    ${VAR} is kept, so the tables stay valid if the folder moves or the
+    project is opened on another machine with the variable set. "~" is
+    expanded because KiCad doesn't expand it. Separators become "/", which
+    KiCad accepts on every OS.
+    """
+    root = raw.strip()
+    if root.startswith("~"):
+        root = os.path.expanduser(root)
+    return root.replace("\\", "/").rstrip("/")
+
+
 class Config:
     """Plugin configuration manager."""
 
@@ -66,6 +136,13 @@ class Config:
         "footprint_lib_name": "footprints.pretty",
         "footprint_lib_nickname": "lcsc_footprints",
         "model_3d_path": "3dmodels",
+        "library_location": LOCATION_PROJECT,
+        "shared_library_path": "",
+        # Distinct from the per-project nicknames, so a project that still
+        # has its own lcsc_imported / lcsc_footprints entries can't shadow
+        # the shared ones (project tables win over global on a name clash).
+        "shared_symbol_lib_nickname": "lcsc_shared",
+        "shared_footprint_lib_nickname": "lcsc_shared_footprints",
         "api_timeout": 30,
         "download_timeout": 60,
         "cache_enabled": True,
@@ -231,11 +308,14 @@ class Config:
         """
         diff = {}
         for key, value in values.items():
+            if key in GLOBAL_ONLY_KEYS:
+                continue
             inherited, _source = self.resolve_for_scope_view(key, "global")
             if str(value) != str(inherited):
                 diff[key] = value
 
-        stored = {k: v for k, v in self._project.items() if k not in PATH_KEYS}
+        stored = {k: v for k, v in self._project.items()
+                  if k not in LAYERED_KEYS and k not in GLOBAL_ONLY_KEYS}
         stored.update(diff)
         if stored:
             self.save_scope("project", stored, project_path)
@@ -244,9 +324,9 @@ class Config:
         return diff
 
     def project_override_keys(self) -> List[str]:
-        """Path keys the open project overrides — i.e. keys on which Global
-        settings have no effect for this project."""
-        return [k for k in PATH_KEYS if k in self._project]
+        """Layered keys the open project overrides — i.e. keys on which
+        Global settings have no effect for this project."""
+        return [k for k in LAYERED_KEYS if k in self._project]
 
     def default_edit_scope(self, project_open: bool) -> str:
         """Scope the Settings dialog should open in: the one that actually
@@ -264,8 +344,9 @@ class Config:
     # ─── value resolution ────────────────────────────────────────────
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Resolve a key through project → global → DEFAULT_CONFIG → default."""
-        if key in self._project:
+        """Resolve a key through project → global → DEFAULT_CONFIG → default.
+        Global-only keys skip the project layer, even in a hand-edited file."""
+        if key in self._project and key not in GLOBAL_ONLY_KEYS:
             return self._project[key]
         if key in self._global:
             return self._global[key]
@@ -275,7 +356,7 @@ class Config:
 
     def get_value_source(self, key: str) -> str:
         """Return 'project' | 'global' | 'default' for the given key."""
-        if key in self._project:
+        if key in self._project and key not in GLOBAL_ONLY_KEYS:
             return "project"
         if key in self._global:
             return "global"
@@ -297,6 +378,11 @@ class Config:
         Useful for one-line UI hints like "Saving with project settings".
         """
         sources = {self.get_value_source(k) for k in PATH_KEYS}
+        # library_location counts only when someone actually set it — an
+        # unset location is the default, not a customisation.
+        location_source = self.get_value_source("library_location")
+        if location_source != "default":
+            sources.add(location_source)
         if sources == {"project"}:
             return "project"
         if "project" in sources:
@@ -352,21 +438,25 @@ class Config:
         'model_3d_dir'. Values are absolute Paths when project_path is given,
         else None (caller should display the template form instead).
         """
-        if project_path is None:
-            return {
-                "library_root": None,
-                "symbol_lib": None,
-                "footprint_lib": None,
-                "model_3d_dir": None,
-            }
-
-        proj_dir = project_path.parent if project_path.is_file() else project_path
-        library_path = values.get("library_path", "libs/lcsc")
         symbol_name = values.get("symbol_lib_name", "lcsc_imported.kicad_sym")
         footprint_name = values.get("footprint_lib_name", "footprints.pretty")
         model_dir = values.get("model_3d_path", "3dmodels")
 
-        library_root = (proj_dir / library_path).resolve()
+        if values.get("library_location") == LOCATION_SHARED:
+            # One folder for every project, so no project is needed. Left
+            # unresolved if the folder is unset or uses an unknown ${VAR}.
+            raw = values.get("shared_library_path") or ""
+            if validate_shared_path(raw) is not None:
+                return {"library_root": None, "symbol_lib": None,
+                        "footprint_lib": None, "model_3d_dir": None}
+            library_root = Path(expand_path_vars(raw)).resolve()
+        else:
+            if project_path is None:
+                return {"library_root": None, "symbol_lib": None,
+                        "footprint_lib": None, "model_3d_dir": None}
+            proj_dir = project_path.parent if project_path.is_file() else project_path
+            library_path = values.get("library_path", "libs/lcsc")
+            library_root = (proj_dir / library_path).resolve()
         return {
             "library_root": library_root,
             "symbol_lib": library_root / "symbols" / symbol_name,
@@ -386,23 +476,58 @@ class Config:
     def get_3d_model_path(self, project_path: Path) -> Path:
         return cast(Path, self.resolve_paths(self._effective_values(), project_path)["model_3d_dir"])
 
-    def get_kiprjmod_uris(self) -> Dict[str, str]:
+    def is_shared_library(self) -> bool:
+        """True when imports go to the shared folder instead of the project."""
+        return self.get("library_location") == LOCATION_SHARED
+
+    def describe_destination(self, project_path: Optional[Path]) -> str:
+        """One line for the dialogs' "saving to" label."""
+        root = self.get_library_path(project_path) if (
+            project_path is not None or self.is_shared_library()) else None
+        if self.is_shared_library():
+            if root is None:
+                return ("shared folder not set, or it uses a path variable "
+                        "KiCad doesn't define — see ⚙ Settings")
+            return f"{root}   (shared folder, used by every project)"
+        return str(root)
+
+    def get_library_nicknames(self) -> Dict[str, str]:
+        """Library-table nicknames for the effective location."""
+        if self.is_shared_library():
+            return {"symbol": self.get("shared_symbol_lib_nickname"),
+                    "footprint": self.get("shared_footprint_lib_nickname")}
+        return {"symbol": self.get("symbol_lib_nickname"),
+                "footprint": self.get("footprint_lib_nickname")}
+
+    def get_library_uris(self) -> Dict[str, str]:
         """
-        Return ${KIPRJMOD}-prefixed URIs used inside KiCad lib tables and
-        footprint files. Independent of the project path on disk.
+        URIs written into KiCad library tables and footprint 3D references.
+        Independent of where the project sits on disk:
+
+        - project location: ${KIPRJMOD}/<library_path>/...
+        - shared location:  the shared folder as entered, ${VAR} kept and
+                            ~ expanded (see shared_uri_root)
         """
         v = self._effective_values()
-        root = v["library_path"]
+        if v.get("library_location") == LOCATION_SHARED:
+            root = shared_uri_root(v.get("shared_library_path") or "")
+        else:
+            root = f"${{KIPRJMOD}}/{v['library_path']}"
         return {
-            "library_root": f"${{KIPRJMOD}}/{root}",
-            "symbol_lib": f"${{KIPRJMOD}}/{root}/symbols/{v['symbol_lib_name']}",
-            "footprint_lib": f"${{KIPRJMOD}}/{root}/{v['footprint_lib_name']}",
-            "model_3d_dir": f"${{KIPRJMOD}}/{root}/{v['model_3d_path']}",
+            "library_root": root,
+            "symbol_lib": f"{root}/symbols/{v['symbol_lib_name']}",
+            "footprint_lib": f"{root}/{v['footprint_lib_name']}",
+            "model_3d_dir": f"{root}/{v['model_3d_path']}",
         }
+
+    def get_kiprjmod_uris(self) -> Dict[str, str]:
+        """Backward-compatible name for get_library_uris(). The URIs are only
+        ${KIPRJMOD}-relative in the project location."""
+        return self.get_library_uris()
 
     def _effective_values(self) -> Dict[str, Any]:
         out = {}
-        for k in PATH_KEYS:
+        for k in LAYERED_KEYS + GLOBAL_ONLY_KEYS:
             out[k] = self.get(k)
         return out
 

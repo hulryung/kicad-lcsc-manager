@@ -216,23 +216,53 @@ the paths above), and honor the same **⚙ Settings…** library-path overrides.
 
 ### Customizing library paths
 
-Click the **⚙ Settings…** button in the import dialog to change where LCSC
-components are stored. Four values are configurable:
+Click the **⚙ Settings…** button in the import dialog to choose where LCSC
+components are stored.
+
+#### Library location
+
+- **Inside each project** (default) — every project keeps its own copy under
+  `<project>/libs/lcsc`, referenced as `${KIPRJMOD}/...` and registered in the
+  project's own library tables. Easy to commit along with the project.
+- **One shared folder for all projects** — every import goes to a single folder
+  of your choice, registered in KiCad's **global** library tables, so parts
+  imported from one project are available in all of them. The folder can be a
+  full path (`~/KiCad/lcsc`, `C:\KiCadLibs\lcsc`) or use a KiCad path variable
+  (`${MY_LIBS}/lcsc`, defined under *Preferences → Configure Paths*). A
+  variable is kept as-is in the library tables and footprints, so they keep
+  working if the folder moves or the project is opened on another machine
+  with the variable set.
+
+  The shared libraries are registered as `lcsc_shared` (symbols) and
+  `lcsc_shared_footprints` (footprints) — distinct from the per-project
+  `lcsc_imported` / `lcsc_footprints`, so a project that still has its own
+  copies can't shadow them. KiCad reads its global tables at startup, so
+  **restart KiCad** once after the first shared import. Before its first
+  edit, LCSC Manager saves a copy of each global table as
+  `sym-lib-table.lcsc_manager.bak` / `fp-lib-table.lcsc_manager.bak`, and it
+  never modifies a library entry it didn't create.
+
+A project can override the location — for example, a team repository that
+commits its own libraries while your personal projects use the shared folder.
+The shared folder itself is always stored in Global, since it is a location
+on your computer.
+
+#### Layout
 
 | Field | Default | Purpose |
 | --- | --- | --- |
-| `library_path` | `libs/lcsc` | Root folder relative to the project |
+| `library_path` | `libs/lcsc` | Root folder relative to the project (inside-each-project location only) |
 | `symbol_lib_name` | `lcsc_imported.kicad_sym` | Symbol library filename |
 | `footprint_lib_name` | `footprints.pretty` | Footprint library folder |
 | `model_3d_path` | `3dmodels` | 3D model folder |
 
-Settings can be saved at one of two scopes:
+#### Where settings are saved
 
-- **Global** — `~/.kicad/lcsc_manager/config.json`. Applies to every project
-  unless overridden.
-- **This project only** — `<project>/.lcsc_manager.json`. Overrides the
-  global config for that project. Commit this file if you want the layout
-  shared with your team, or add it to `.gitignore` if it's personal.
+- **Global** — `~/.kicad/lcsc_manager/config.json`. The default for every
+  project.
+- **This project only** — `<project>/.lcsc_manager.json`. Overrides Global for
+  that project. Commit this file if you want the layout shared with your team,
+  or add it to `.gitignore` if it's personal.
 
 Resolution order is `default < global < project`. A project stores only the
 values that differ from Global, so everything else keeps following Global. The
@@ -240,10 +270,6 @@ Settings dialog opens on whichever scope currently supplies the settings, shows
 a live preview of the resolved paths, and marks where each value comes from.
 Changes apply to *future* imports only — existing libraries are not moved
 automatically.
-
-> **Global is a default, not a shared folder.** Every path is relative to the
-> project, so with Global settings each project still gets its own copy of the
-> libraries — Global just decides the layout they all use.
 
 ### Tips
 

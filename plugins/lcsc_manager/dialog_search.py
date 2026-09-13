@@ -962,8 +962,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
     def _refresh_destination(self):
         """Update the 'Import destination' panel labels."""
-        lib_root = self.config.get_library_path(self.project_path)
-        self.dest_path_label.SetLabel(str(lib_root))
+        self.dest_path_label.SetLabel(
+            self.config.describe_destination(self.project_path))
 
         summary = self.config.get_active_scope_summary()
         scope_text, scope_color = {

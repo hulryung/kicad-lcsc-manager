@@ -49,6 +49,10 @@ class BomImportSummary:
     rate_limited: bool = False
     # LCSC ids that were never attempted (batch stopped early).
     not_attempted: List[str] = field(default_factory=list)
+    # Library-table messages from the imports (e.g. "restart KiCad" after the
+    # shared library is first registered), de-duplicated, in order. They used
+    # to be dropped, so a batch never passed them on.
+    notifications: List[str] = field(default_factory=list)
 
     @property
     def imported(self) -> List[PartImportResult]:
@@ -142,6 +146,10 @@ class BomImporter:
                     PartImportResult(lcsc_id, False, error=f"Import failed: {e}")
                 )
                 continue
+
+            for note in result.get("notifications") or []:
+                if note not in summary.notifications:
+                    summary.notifications.append(note)
 
             part = PartImportResult(
                 lcsc_id=lcsc_id,

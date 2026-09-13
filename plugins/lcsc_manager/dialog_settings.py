@@ -2,6 +2,7 @@
 SettingsDialog — edit LCSC Manager library paths at global or project scope.
 
 Layout (top-down):
+    [ Library location: inside each project / one shared folder + Browse ]
     [ 4 path fields, each with a value-source badge ]
     [ Preview block: resolved paths + existence indicators ]
     [ Scope radio: Global / This project only, + override notice ]
@@ -16,7 +17,9 @@ from typing import Dict, Optional
 
 import wx
 
-from .utils.config import Config, PATH_KEYS, validate_path_value
+from .utils.config import (Config, PATH_KEYS, LAYERED_KEYS, LOCATION_PROJECT,
+                           LOCATION_SHARED, expand_path_vars,
+                           validate_path_value, validate_shared_path)
 
 
 FIELD_LABELS = {
@@ -24,6 +27,8 @@ FIELD_LABELS = {
     "symbol_lib_name": "Symbol file name:",
     "footprint_lib_name": "Footprint folder:",
     "model_3d_path": "3D model folder:",
+    "library_location": "Library location:",
+    "shared_library_path": "Shared folder:",
 }
 
 
@@ -34,7 +39,7 @@ class SettingsDialog(wx.Dialog):
         super().__init__(
             parent,
             title="LCSC Manager — Settings",
-            size=(820, 540),
+            size=(840, 720),
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
         )
 
@@ -58,6 +63,48 @@ class SettingsDialog(wx.Dialog):
     def _build_ui(self) -> None:
         main = wx.BoxSizer(wx.VERTICAL)
 
+        # Where the libraries live. Separate from the scope radio below,
+        # which only decides where these *settings* are stored (issue #20).
+        loc_box = wx.StaticBox(self, label="Library location")
+        loc_sizer = wx.StaticBoxSizer(loc_box, wx.VERTICAL)
+        muted = wx.Colour(100, 100, 100)
+
+        self.radio_loc_project = wx.RadioButton(
+            self, label="Inside each project", style=wx.RB_GROUP)
+        loc_sizer.Add(self.radio_loc_project, 0, wx.LEFT | wx.RIGHT | wx.TOP, 4)
+        loc_project_hint = wx.StaticText(
+            self, label="Every project keeps its own copy under the library "
+                        "root path below — easy to commit along with the project.")
+        loc_project_hint.SetForegroundColour(muted)
+        loc_sizer.Add(loc_project_hint, 0, wx.LEFT, 28)
+
+        self.radio_loc_shared = wx.RadioButton(
+            self, label="One shared folder for all projects")
+        loc_sizer.Add(self.radio_loc_shared, 0, wx.LEFT | wx.RIGHT | wx.TOP, 4)
+
+        shared_row = wx.BoxSizer(wx.HORIZONTAL)
+        shared_row.AddSpacer(24)  # line up under the radio label
+        self.shared_path_ctrl = wx.TextCtrl(self)
+        self.shared_path_ctrl.SetHint("e.g. ~/KiCad/lcsc, C:\\KiCadLibs\\lcsc or ${MY_LIBS}/lcsc")
+        self.shared_path_ctrl.Bind(wx.EVT_TEXT, self._on_value_change)
+        shared_row.Add(self.shared_path_ctrl, 1, wx.EXPAND)
+        self.shared_browse_btn = wx.Button(self, label="Browse…")
+        self.shared_browse_btn.Bind(wx.EVT_BUTTON, self._on_browse_shared)
+        shared_row.Add(self.shared_browse_btn, 0, wx.LEFT, 6)
+        loc_sizer.Add(shared_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+        loc_shared_hint = wx.StaticText(
+            self, label="Registered in KiCad's global library tables, so every "
+                        "project can use it. The folder is always saved to "
+                        "Global — it is a location on this computer.")
+        loc_shared_hint.SetForegroundColour(muted)
+        loc_shared_hint.Wrap(740)
+        loc_sizer.Add(loc_shared_hint, 0, wx.LEFT | wx.TOP, 28)
+        loc_sizer.AddSpacer(4)
+
+        for radio in (self.radio_loc_project, self.radio_loc_shared):
+            radio.Bind(wx.EVT_RADIOBUTTON, self._on_location_change)
+        main.Add(loc_sizer, 0, wx.ALL | wx.EXPAND, 12)
+
         # Fields panel
         grid = wx.FlexGridSizer(rows=len(PATH_KEYS), cols=3, hgap=8, vgap=6)
         grid.AddGrowableCol(1, 1)
@@ -74,15 +121,7 @@ class SettingsDialog(wx.Dialog):
             grid.Add(badge, 0, wx.ALIGN_CENTER_VERTICAL)
             self.field_controls[key] = (ctrl, badge)
 
-        main.Add(grid, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.EXPAND, 12)
-
-        hint = wx.StaticText(
-            self,
-            label="Paths are relative to each project's folder, so every "
-                  "project keeps its own copy of the libraries.",
-        )
-        hint.SetForegroundColour(wx.Colour(100, 100, 100))
-        main.Add(hint, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 12)
+        main.Add(grid, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 
         # Preview block
         preview_box = wx.StaticBox(self, label="Preview")
@@ -90,7 +129,7 @@ class SettingsDialog(wx.Dialog):
 
         # Use a 3-column FlexGrid so long paths flex on the middle column
         # instead of getting clipped by a fixed Wrap() width.
-        pv_grid = wx.FlexGridSizer(rows=3, cols=3, hgap=8, vgap=4)
+        pv_grid = wx.FlexGridSizer(rows=4, cols=3, hgap=8, vgap=4)
         pv_grid.AddGrowableCol(1, 1)
 
         for key, title in (
@@ -110,6 +149,13 @@ class SettingsDialog(wx.Dialog):
 
             self.preview_labels[key] = path_lbl
             self.preview_status[key] = status_lbl
+
+        reg_title = wx.StaticText(self, label="Registered in:")
+        reg_title.SetMinSize((130, -1))
+        self.registered_label = wx.StaticText(self, label="—")
+        pv_grid.Add(reg_title, 0, wx.ALIGN_CENTER_VERTICAL)
+        pv_grid.Add(self.registered_label, 1, wx.ALIGN_CENTER_VERTICAL | wx.EXPAND)
+        pv_grid.Add(wx.StaticText(self, label=""), 0)
 
         pv_sizer.Add(pv_grid, 1, wx.EXPAND | wx.ALL, 4)
 
@@ -194,7 +240,17 @@ class SettingsDialog(wx.Dialog):
             ctrl, _ = self.field_controls[key]
             value, _src = self.config.resolve_for_scope_view(key, scope)
             ctrl.ChangeValue(str(value) if value is not None else "")
+        location, _src = self.config.resolve_for_scope_view("library_location", scope)
+        if location == LOCATION_SHARED:
+            self.radio_loc_shared.SetValue(True)
+        else:
+            self.radio_loc_project.SetValue(True)
+        # Global-only: the same folder whichever scope is being edited.
+        self.shared_path_ctrl.ChangeValue(self.config.get("shared_library_path") or "")
         self._refresh_all()
+
+    def _current_location(self) -> str:
+        return LOCATION_SHARED if self.radio_loc_shared.GetValue() else LOCATION_PROJECT
 
     # ─── event handlers ─────────────────────────────────────────────
 
@@ -203,6 +259,18 @@ class SettingsDialog(wx.Dialog):
 
     def _on_value_change(self, event):
         self._refresh_all()
+
+    def _on_location_change(self, event):
+        self._refresh_all()
+
+    def _on_browse_shared(self, event):
+        start = self.shared_path_ctrl.GetValue().strip()
+        start = expand_path_vars(start) if start else str(Path.home())
+        with wx.DirDialog(self, "Choose the shared library folder",
+                          defaultPath=start,
+                          style=wx.DD_DEFAULT_STYLE) as dlg:
+            if dlg.ShowModal() == wx.ID_OK:
+                self.shared_path_ctrl.SetValue(dlg.GetPath())
 
     def _on_reset(self, event):
         scope = self._current_scope()
@@ -235,11 +303,15 @@ class SettingsDialog(wx.Dialog):
             )
             return
         scope = self._current_scope()
+        layered = {k: values[k] for k in LAYERED_KEYS}
         try:
             if scope == "project":
-                self.config.save_project_settings(values, self.project_path)
+                self.config.save_project_settings(layered, self.project_path)
             else:
-                self.config.save_global_settings(values)
+                self.config.save_global_settings(layered)
+            # A folder on this computer, so it always lives in Global.
+            self.config.save_global_settings(
+                {"shared_library_path": values["shared_library_path"]})
         except Exception as e:
             wx.MessageBox(f"Save failed: {e}", "Error", wx.OK | wx.ICON_ERROR, self)
             return
@@ -277,17 +349,31 @@ class SettingsDialog(wx.Dialog):
         """Return (values_dict, errors_dict). Errors maps key→message."""
         values: Dict[str, str] = {}
         errors: Dict[str, str] = {}
+        location = self._current_location()
         for key in PATH_KEYS:
             ctrl, _ = self.field_controls[key]
             raw = ctrl.GetValue().strip()
-            error = validate_path_value(key, raw)
-            if error:
-                errors[key] = error
+            # The project library root is unused for a shared folder.
+            if not (key == "library_path" and location == LOCATION_SHARED):
+                error = validate_path_value(key, raw)
+                if error:
+                    errors[key] = error
             values[key] = raw
+        values["library_location"] = location
+        shared = self.shared_path_ctrl.GetValue().strip()
+        values["shared_library_path"] = shared
+        if location == LOCATION_SHARED:
+            error = validate_shared_path(shared)
+            if error:
+                errors["shared_library_path"] = error
         return values, errors
 
     def _refresh_all(self) -> None:
         values, errors = self._collect_values()
+        shared = values["library_location"] == LOCATION_SHARED
+        self.field_controls["library_path"][0].Enable(not shared)
+        self.shared_path_ctrl.Enable(shared)
+        self.shared_browse_btn.Enable(shared)
         self._refresh_badges()
         self._refresh_scope_notice()
         self._refresh_preview(values, errors)
@@ -348,7 +434,13 @@ class SettingsDialog(wx.Dialog):
         #              absolute path.
         # Project view: show the absolute path resolved against the
         #               currently open project.
-        show_template = (scope == "global") or (self.project_path is None)
+        shared = values.get("library_location") == LOCATION_SHARED
+        # A shared folder is the same for every project, so it can always be
+        # shown as a real path.
+        show_template = not shared and (scope == "global" or self.project_path is None)
+        self.registered_label.SetLabel(
+            "KiCad's global library tables (every project)" if shared
+            else "each project's own library tables")
 
         if show_template:
             root = values.get("library_path", "")
