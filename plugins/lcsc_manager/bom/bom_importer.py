@@ -53,6 +53,9 @@ class BomImportSummary:
     # shared library is first registered), de-duplicated, in order. They used
     # to be dropped, so a batch never passed them on.
     notifications: List[str] = field(default_factory=list)
+    # Some library needs a project reopen / KiCad restart; its notice is in
+    # `notifications`, which makes the generic reopen hint redundant.
+    restart_required: bool = False
 
     @property
     def imported(self) -> List[PartImportResult]:
@@ -150,6 +153,7 @@ class BomImporter:
             for note in result.get("notifications") or []:
                 if note not in summary.notifications:
                     summary.notifications.append(note)
+            summary.restart_required |= bool(result.get("restart_required"))
 
             part = PartImportResult(
                 lcsc_id=lcsc_id,
