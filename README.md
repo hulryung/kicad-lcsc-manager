@@ -62,6 +62,14 @@ A KiCad plugin that allows you to search and import electronic components from L
    macOS a stale KiCad/Python state can block the first load until a full
    restart.
 
+> **Which build you get:** every release comes in two builds, and the
+> repository offers the one that fits your KiCad. KiCad 9 and 10 get the 0.x
+> build. KiCad 11 (now in development) drops the Python scripting API that
+> build uses, so it gets the 1.x build of the same release, which runs
+> through KiCad's IPC API instead. When you install that one, KiCad offers
+> to turn on its API server; say yes, or turn it on later under
+> **Preferences → Plugins**.
+
 ### Method 2: Manual Installation
 
 > **Don't extract the release ZIP straight into your plugins folder.** It is a
@@ -73,7 +81,9 @@ A KiCad plugin that allows you to search and import electronic components from L
 
 1. **Download the latest release**
    - Go to [Releases](https://github.com/hulryung/kicad-lcsc-manager/releases)
-   - Download `kicad-lcsc-manager-x.x.x.zip` from the latest release
+   - Download `kicad-lcsc-manager-x.x.x.zip` from the latest release. (The
+     `-ipc.zip` next to it is the KiCad 11 build; install that one with the
+     PCM's **Install from File…** instead.)
 
 2. **Extract it somewhere temporary**, then copy everything *inside* the ZIP's
    `plugins/` directory into a new `lcsc_manager` folder in your KiCad plugins
@@ -298,8 +308,10 @@ Alternatively, manually remove:
 
 ## 📋 Requirements
 
-- **KiCad**: 9.0 or later (recommended)
+- **KiCad**: 9.0 or 10.x
   - May work with KiCad 7.0+ but not officially tested
+  - KiCad 11 (in development) uses the 1.x IPC build, which needs KiCad's
+    API server turned on (**Preferences → Plugins**)
 - **Python**: 3.9+ (bundled with KiCad)
 - **Python packages**: none to install — `requests` and its dependencies are
   bundled with the plugin (`lcsc_manager/lib/`)

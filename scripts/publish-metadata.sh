@@ -13,7 +13,11 @@
 # (main moved while we worked) start over from the new main. Fail loudly if
 # it can't be done. Re-running for a version already recorded is a no-op.
 #
-# Usage:  scripts/publish-metadata.sh <version> <package.zip>
+# The entries are written by this checkout's update-metadata.py, not main's:
+# it belongs with the code that built the packages (see pcm_builds.py).
+#
+# Usage:  scripts/publish-metadata.sh <version> <package.zip>...
+#         (every package of the release: the SWIG and the IPC build)
 # Env:    PUBLISH_REMOTE       remote to publish to        (default: origin)
 #         PUBLISH_BRANCH       branch holding the metadata (default: main)
 #         PUBLISH_ATTEMPTS     push attempts               (default: 5)
@@ -23,19 +27,24 @@
 
 set -euo pipefail
 
-if [ $# -ne 2 ]; then
-    echo "Usage: $0 <version> <package.zip>" >&2
+if [ $# -lt 2 ]; then
+    echo "Usage: $0 <version> <package.zip>..." >&2
     exit 2
 fi
 
 version="$1"
-package="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
+shift
+packages=()
+for package in "$@"; do
+    packages+=("$(cd "$(dirname "$package")" && pwd)/$(basename "$package")")
+done
 remote="${PUBLISH_REMOTE:-origin}"
 branch="${PUBLISH_BRANCH:-main}"
 attempts="${PUBLISH_ATTEMPTS:-5}"
 delay="${PUBLISH_RETRY_DELAY:-3}"
 
 repo="$(git rev-parse --show-toplevel)"
+update_metadata="$repo/scripts/update-metadata.py"
 scratch="$(mktemp -d)"
 worktree="$scratch/metadata"
 
@@ -53,12 +62,13 @@ for attempt in $(seq 1 "$attempts"); do
     git worktree add --quiet --detach "$worktree" "$remote/$branch"
 
     cd "$worktree"
-    python3 scripts/update-metadata.py "$version" "$package" >/dev/null
+    # -B: leave no __pycache__ in this checkout.
+    python3 -B "$update_metadata" "$version" "${packages[@]}" >/dev/null
 
     # repository.json always gets a fresh timestamp; only publish when the
     # package lists actually changed.
     if git diff --quiet -- metadata.json packages.json; then
-        echo "$branch already lists v$version with this package; nothing to publish."
+        echo "$branch already lists v$version with these packages; nothing to publish."
         exit 0
     fi
 

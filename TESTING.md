@@ -147,6 +147,22 @@ and adds the LCSC Manager button after the scripting console button. With KiCad
 running, `ipc_main.py` can also be started by hand against it
 (`KICAD_API_SOCKET=ipc:///tmp/kicad/api.sock`, empty `KICAD_API_TOKEN`).
 
+### Release packages
+
+`tests/test_build_packages.py` builds both release ZIPs (the SWIG build for
+KiCad 9/10 and the IPC build for KiCad 11, see `docs/PACKAGING.md`) and
+checks their contents and metadata. It also checks that KiCad's own
+compatibility rule offers each KiCad exactly one of them. It uses a
+stand-in for the bundled dependencies, so it runs anywhere.
+
+To try real release ZIPs, build them with `./scripts/package.sh <version>`.
+Then use **Install from File…** in the Plugin and Content Manager of a
+sandboxed KiCad (as above), or unpack a ZIP's `plugins/` the way the PCM
+does, into `<docs>/KiCad/10.0/3rdparty/plugins/com_github_hulryung_kicad-lcsc-manager/`.
+KiCad 10 loads both from there: the SWIG build appears under
+*Tools → External Plugins*, and the IPC build gets its button without
+appearing there.
+
 **What still needs a running KiCad:** anything about the *live session*.
 `pcbnew.GetBoard()` only returns the PCB editor window's board, so from a
 command line it is always `None`. That means a script can't see what an open

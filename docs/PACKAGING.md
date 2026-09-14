@@ -384,18 +384,65 @@ See `.github/workflows/release.yml` for automated packaging on version tag push.
    git push origin v1.0.0
    ```
 3. GitHub Actions will automatically:
-   - Build the package ZIP
-   - Calculate SHA256
-   - Create GitHub Release
-   - Record the release in `metadata.json`, `packages.json` and
+   - Build the two package ZIPs (see below) and check them
+   - Create GitHub Release with both
+   - Record both in `metadata.json`, `packages.json` and
      `repository.json` on `main` (`scripts/publish-metadata.sh`)
+
+`./scripts/package.sh <version>` builds the same ZIPs locally, into `release/`.
+
+### Two builds per release
+
+KiCad 11 removes the SWIG Python API the plugin has always used, so each tag
+`vX.Y.Z` produces two packages from the same code
+(`scripts/pcm_builds.py`, built by `scripts/build-packages.py`):
+
+| Build | PCM version | ZIP | KiCad |
+|-------|-------------|-----|-------|
+| SWIG | `X.Y.Z` | `kicad-lcsc-manager-X.Y.Z.zip` | 9.0 – 10.99 (`kicad_version_max`) |
+| IPC | `(X+1).Y.Z` | `kicad-lcsc-manager-(X+1).Y.Z-ipc.zip` | 10.99 (KiCad 11 nightlies) and later |
+
+Both are entries in the same package's `versions`, with `"runtime": "swig"`
+or `"ipc"`, so each KiCad offers exactly one of them.
+
+- **Why the version numbers differ:** KiCad finds a package version by its
+  version string alone, when installing, updating, or deciding what's
+  compatible. Two entries with the same string would be mixed up; KiCad 11
+  could even mark its own IPC build incompatible, because it turns down
+  every SWIG version it finds under that string. The IPC build is the same
+  release with the major number raised by one.
+- **So keep tags on major 0 while both builds exist.** `v1.9.0`'s SWIG build
+  would be `1.9.0`, which `v0.9.0` already published as its IPC build.
+  `build-packages.py` refuses such a release before anything is uploaded,
+  and `update-metadata.py` refuses to record it.
+- **Why the IPC build doesn't start at KiCad 10:** KiCad 10 runs IPC plugins
+  too, but the newer IPC build would then replace the SWIG build there, and
+  it only works with the API server switched on.
+- Both entries are `stable`. KiCad only offers an update whose status is no
+  "less stable" than the installed version's, so a `testing` IPC build
+  would never be offered to someone whose KiCad 11 still lists a stable SWIG
+  install.
+- The IPC ZIP's `plugins/` is the plugin package plus `ipc/plugin.json` and
+  `ipc/requirements.txt` (`scripts/assemble-ipc-plugin.py`); the SWIG ZIP's
+  is the package alone. A package with `plugin.json` doesn't register the
+  SWIG plugin, so a SWIG ZIP must never contain one. `build-packages.py`
+  fails the build if it does.
+- Each ZIP's `metadata.json` is the package fields of the repository's
+  `metadata.json` plus that build's version entry, and its
+  `plugins/__init__.py` carries that build's version. The source tree isn't
+  modified.
 
 ### Workflow Features
 
 - Triggered by `v*.*.*` tags; one release runs at a time
-- Excludes `__pycache__` and `.pyc` files, and fails if any slip into the ZIP
-- Validates package structure
-- Creates GitHub Release with notes
+- Excludes `__pycache__` and `.pyc` files, and fails if any slip into a ZIP
+- Checks each ZIP: bundled dependencies present, the right `metadata.json`
+  and `__version__`, and `plugin.json`, `requirements.txt` and the files
+  `plugin.json` refers to in the IPC ZIP only
+- Creates GitHub Release with notes saying which ZIP is for which KiCad
+- The metadata entries are written by the tag's own
+  `scripts/update-metadata.py`, so they always match the packages the same
+  checkout built
 - Updates the metadata on the **latest `main`**, not on the tagged commit.
   A tag can lag behind `main` — e.g. when the previous release's metadata
   commit wasn't pulled before tagging — and pushing the tag's tree would
@@ -405,7 +452,7 @@ See `.github/workflows/release.yml` for automated packaging on version tag push.
   lists the release (which is what happened to v0.7.1). Re-running the
   workflow for a release that's already recorded changes nothing.
 - Warns when the tagged commit's `__version__` doesn't match the tag. The
-  package always gets the tag's version; `main` is not modified.
+  packages always get their own versions; `main` is not modified.
 
 After a release, pull before your next change: the workflow adds an
 "Update metadata for release vX.Y.Z" commit to `main`.
