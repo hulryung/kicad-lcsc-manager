@@ -1,0 +1,21 @@
+{
+  "$schema": "https://go.kicad.org/api/schemas/v1",
+  "identifier": "com.github.hulryung.kicad-lcsc-manager",
+  "name": "LCSC Manager",
+  "description": "Search LCSC/JLCPCB parts and import their symbols, footprints and 3D models from EasyEDA into the project libraries",
+  "runtime": {
+    "type": "python"
+  },
+  "actions": [
+    {
+      "identifier": "open",
+      "name": "LCSC Manager",
+      "description": "Search LCSC/JLCPCB parts and import symbols, footprints and 3D models",
+      "show-button": true,
+      "scopes": ["pcb", "schematic"],
+      "entrypoint": "ipc_main.py",
+      "icons-light": ["plugin_resources/icon-24.png", "plugin_resources/icon-48.png"],
+      "icons-dark": ["plugin_resources/icon-24.png", "plugin_resources/icon-48.png"]
+    }
+  ]
+}

@@ -22,7 +22,7 @@ sys.path.insert(0, str(PLUGINS))
 import lcsc_manager.utils.kicad_host as kh
 from lcsc_manager.utils.kicad_host import (
     IpcHost, NullHost, SwigHost, default_user_settings_dir, detect_host,
-    get_host, set_host_for_tests, substitute_vars,
+    get_host, set_host, substitute_vars,
 )
 
 KICAD_PYTHON = Path("/Applications/KiCad/KiCad.app/Contents/Frameworks/"
@@ -160,20 +160,35 @@ def test_swig_host_registers_in_memory_on_kicad9():
 
 # ─── IpcHost over a stand-in kipy ─────────────────────────────────────
 
+class _ApiError(Exception):
+    """kipy.errors.ApiError: KiCad answered with an error."""
+
+
+class _KipyConnectionError(Exception):
+    """kipy.errors.ConnectionError: KiCad couldn't be reached."""
+
+
 def _install_fake_kipy():
-    """Just enough of kipy for IpcHost: the DocumentType enum."""
+    """Just enough of kipy for IpcHost: the DocumentType enum and errors."""
     DocumentType = types.SimpleNamespace(DOCTYPE_SCHEMATIC=1, DOCTYPE_PCB=3)
-    for name in ("kipy", "kipy.proto", "kipy.proto.common", "kipy.proto.common.types"):
+    for name in ("kipy", "kipy.errors", "kipy.proto", "kipy.proto.common",
+                 "kipy.proto.common.types"):
         sys.modules.setdefault(name, types.ModuleType(name))
     sys.modules["kipy.proto.common.types"].DocumentType = DocumentType
+    sys.modules["kipy.errors"].ApiError = _ApiError
+    sys.modules["kipy.errors"].ConnectionError = _KipyConnectionError
     return DocumentType
 
 
 class _FakeKiCad:
+    """docs: {kind: [documents] or an exception to raise}."""
     def __init__(self, docs=None, version=(10, 0)):
         self.docs, self.version = docs or {}, version
     def get_open_documents(self, kind):
-        return self.docs.get(kind, [])
+        found = self.docs.get(kind, [])
+        if isinstance(found, Exception):
+            raise found
+        return found
     def get_version(self):
         return types.SimpleNamespace(major=self.version[0], minor=self.version[1])
 
@@ -193,7 +208,27 @@ def test_ipc_host_project_file():
     assert IpcHost(_FakeKiCad({dt.DOCTYPE_SCHEMATIC: [sch_doc]})).project_file() == \
         Path("/proj/board.kicad_pro")
     assert IpcHost(_FakeKiCad()).project_file() is None
+    # A new board that was never saved has no project folder yet.
+    assert IpcHost(_FakeKiCad({dt.DOCTYPE_PCB: [_doc("", "")]})).project_file() is None
     print("test_ipc_host_project_file: PASS")
+
+
+def test_ipc_host_skips_closed_editors_but_not_a_lost_connection():
+    """KiCad answers "unhandled" (ApiError) for an editor that isn't open;
+    that's not an error. Not reaching KiCad at all is, and the IPC entry
+    point reports it, so it must not come back as "nothing open"."""
+    dt = _install_fake_kipy()
+    sch_doc = _doc("/proj", "board")
+    only_sch = _FakeKiCad({dt.DOCTYPE_PCB: _ApiError("unhandled"),
+                           dt.DOCTYPE_SCHEMATIC: [sch_doc]})
+    assert IpcHost(only_sch).project_file() == Path("/proj/board.kicad_pro")
+    lost = _FakeKiCad({dt.DOCTYPE_PCB: _KipyConnectionError("timed out")})
+    try:
+        IpcHost(lost).project_file()
+    except _KipyConnectionError:
+        print("test_ipc_host_skips_closed_editors_but_not_a_lost_connection: PASS")
+        return
+    raise AssertionError("a connection error must reach the caller")
 
 
 def test_ipc_host_settings_and_path_variables():
@@ -245,7 +280,7 @@ def test_detect_host():
 
 
 def test_get_host_remembers_sessions_only():
-    set_host_for_tests(None)
+    set_host(None)
     saved = kh.detect_host
     try:
         kh.detect_host = lambda: NullHost()
@@ -257,7 +292,7 @@ def test_get_host_remembers_sessions_only():
         assert isinstance(first, NullHost)
     finally:
         kh.detect_host = saved
-        set_host_for_tests(None)
+        set_host(None)
     print("test_get_host_remembers_sessions_only: PASS")
 
 
@@ -266,11 +301,11 @@ def test_config_expands_through_the_host():
     class Marker(NullHost):
         def expand_path_vars(self, text):
             return "via-host:" + text
-    set_host_for_tests(Marker())
+    set_host(Marker())
     try:
         assert expand_path_vars("${X}") == "via-host:${X}"
     finally:
-        set_host_for_tests(None)
+        set_host(None)
     print("test_config_expands_through_the_host: PASS")
 
 

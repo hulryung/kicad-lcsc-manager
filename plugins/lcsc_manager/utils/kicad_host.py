@@ -188,12 +188,15 @@ class IpcHost(KiCadHost):
         return self._kicad
 
     def _open_document(self):
+        from kipy.errors import ApiError
         from kipy.proto.common.types import DocumentType
         kicad = self._client()
         for kind in (DocumentType.DOCTYPE_PCB, DocumentType.DOCTYPE_SCHEMATIC):
             try:
                 documents = kicad.get_open_documents(kind)
-            except Exception as e:
+            except ApiError as e:
+                # KiCad answers "unhandled" when that editor isn't open.
+                # Connection errors are left to the caller.
                 logger.debug(f"get_open_documents({kind}) failed: {e}")
                 continue
             if documents:
@@ -201,9 +204,11 @@ class IpcHost(KiCadHost):
         return None
 
     def project_file(self) -> Optional[Path]:
+        """The open board, or the project file when only the Schematic Editor
+        is open. Raises if KiCad can't be reached."""
         document = self._open_document()
-        if document is None:
-            return None
+        if document is None or not document.project.path:
+            return None                 # nothing open, or never saved
         project_dir = Path(document.project.path)
         if document.board_filename:
             return project_dir / document.board_filename
@@ -281,7 +286,8 @@ def get_host() -> KiCadHost:
     return host
 
 
-def set_host_for_tests(host: Optional[KiCadHost]) -> None:
-    """Test-only: force the host (None re-enables detection)."""
+def set_host(host: Optional[KiCadHost]) -> None:
+    """Use this host from now on (None re-enables detection). For an entry
+    point that knows where it runs — the IPC entry point — and for tests."""
     global _host
     _host = host

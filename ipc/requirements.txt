@@ -1,0 +1,6 @@
+# Installed by KiCad into the plugin's own Python environment each time it
+# loads the plugin (pip install --only-binary :all: -r requirements.txt).
+# Everything else the plugin needs is bundled under lib/.
+# Recheck the upper bound, and that wheels exist for KiCad's Python, when a
+# new KiCad or kicad-python release comes out.
+kicad-python>=0.8.0,<0.9
