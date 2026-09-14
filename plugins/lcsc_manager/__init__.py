@@ -16,13 +16,18 @@ lib_path = os.path.join(os.path.dirname(__file__), "lib")
 if os.path.exists(lib_path) and lib_path not in sys.path:
     sys.path.insert(0, lib_path)
 
-# Register the plugin with KiCad.
+# Register the SWIG action plugin with KiCad.
 # Guarded so unit tests can import submodules outside of KiCad's Python
-# (which lacks pcbnew/wx). No effect when running inside KiCad.
-try:
-    from .plugin import LCSCManagerPlugin
+# (which lacks pcbnew/wx). Skipped in an IPC plugin process: pcbnew is
+# importable there but registering outside the pcbnew process fails, which
+# would make importing this package fail (#19). No effect inside pcbnew.
+from .utils.runtime import in_ipc_plugin_process
 
-    if __name__ != "__main__":
-        LCSCManagerPlugin().register()
-except ImportError:
-    pass
+if not in_ipc_plugin_process():
+    try:
+        from .plugin import LCSCManagerPlugin
+
+        if __name__ != "__main__":
+            LCSCManagerPlugin().register()
+    except ImportError:
+        pass
