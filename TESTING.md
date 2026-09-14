@@ -107,6 +107,46 @@ KICAD_CONFIG_HOME=/tmp/sandbox "$KPY" my_check.py           # pcbnew, wx, the pl
 KICAD_CONFIG_HOME=/tmp/sandbox kicad-cli pcb drc --format json -o out.json board.kicad_pcb
 ```
 
+### The IPC plugin (KiCad 11 port, #19)
+
+`tests/test_ipc_plugin.py` needs only Python 3: it checks `ipc/plugin.json`
+against KiCad's own identifier rule and schema, assembles the plugin folder,
+runs `ipc_main.py` the way KiCad does (from a folder named like a Plugin and
+Content Manager install, with a stub wx), and requires it to write nothing to
+stdout/stderr, which KiCad would show as an error.
+
+To open the real dialog in an IPC process **without KiCad running**, build the
+plugin's environment the way KiCad does and point the plugin at
+`tests/fake_kicad_api.py`, which stands in for KiCad's API server:
+
+```bash
+KPY=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
+W=$(mktemp -d)
+"$KPY" -m venv --system-site-packages "$W/venv"
+"$W/venv/bin/python3" -m pip install --only-binary :all: -r ipc/requirements.txt
+python3 scripts/assemble-ipc-plugin.py "$W/plugin"
+mkdir "$W/proj" && echo '(kicad_pcb (version 20241229) (generator "pcbnew"))' > "$W/proj/demo.kicad_pcb"
+"$W/venv/bin/python3" tests/fake_kicad_api.py tcp://127.0.0.1:5555 "$W/proj/demo.kicad_pcb" tok &
+cd "$W/plugin" && HOME="$W/home" KICAD_CONFIG_HOME="$W/kicad-config" \
+  KICAD_API_SOCKET=tcp://127.0.0.1:5555 KICAD_API_TOKEN=tok \
+  "$W/venv/bin/python3" ipc_main.py
+```
+
+`HOME` and `KICAD_CONFIG_HOME` keep the plugin's settings, log and any library
+tables out of your real ones. The plugin logs to
+`$HOME/.kicad/lcsc_manager/logs/lcsc_manager.log`.
+
+In **KiCad 10** itself, with nothing of yours touched: copy
+`~/Library/Preferences/kicad/10.0` to a sandbox, set `api.enable_server` to
+`true` in the copy's `kicad_common.json`, assemble the plugin into
+`<docs>/KiCad/10.0/plugins/lcsc-manager`, and start pcbnew with
+`KICAD_CONFIG_HOME`, `KICAD_DOCUMENTS_HOME=<docs>` and `KICAD_CACHE_HOME`
+pointing into the sandbox. KiCad builds the plugin's environment under
+`<cache>/KiCad/10.0/python-environments/com.github.hulryung.kicad-lcsc-manager`
+and adds the LCSC Manager button after the scripting console button. With KiCad
+running, `ipc_main.py` can also be started by hand against it
+(`KICAD_API_SOCKET=ipc:///tmp/kicad/api.sock`, empty `KICAD_API_TOKEN`).
+
 **What still needs a running KiCad:** anything about the *live session*.
 `pcbnew.GetBoard()` only returns the PCB editor window's board, so from a
 command line it is always `None`. That means a script can't see what an open

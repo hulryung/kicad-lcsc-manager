@@ -5,6 +5,25 @@ import logging
 import os
 from pathlib import Path
 
+# Console handlers write to stderr. The IPC entry point turns them off, since
+# it points stderr at the log file itself (see ipc_main.py).
+_console_logging = True
+_console_handlers = []
+
+
+def log_file() -> Path:
+    """The file every logger writes to."""
+    return Path.home() / ".kicad" / "lcsc_manager" / "logs" / "lcsc_manager.log"
+
+
+def log_to_file_only() -> None:
+    """Stop logging to the console, for loggers set up so far and later."""
+    global _console_logging
+    _console_logging = False
+    for logger, handler in _console_handlers:
+        logger.removeHandler(handler)
+    _console_handlers.clear()
+
 
 def setup_logger(name: str = "lcsc_manager") -> logging.Logger:
     """
@@ -25,17 +44,12 @@ def setup_logger(name: str = "lcsc_manager") -> logging.Logger:
     logger.setLevel(logging.DEBUG)
 
     # Create logs directory in user's home
-    log_dir = Path.home() / ".kicad" / "lcsc_manager" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    path = log_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     # File handler
-    log_file = log_dir / "lcsc_manager.log"
-    file_handler = logging.FileHandler(log_file)
+    file_handler = logging.FileHandler(path)
     file_handler.setLevel(logging.DEBUG)
-
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
 
     # Formatter
     formatter = logging.Formatter(
@@ -43,10 +57,15 @@ def setup_logger(name: str = "lcsc_manager") -> logging.Logger:
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-
     logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+
+    # Console handler
+    if _console_logging:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        _console_handlers.append((logger, console_handler))
 
     return logger
 

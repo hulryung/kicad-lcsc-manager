@@ -21,9 +21,14 @@ if os.path.exists(lib_path) and lib_path not in sys.path:
 # (which lacks pcbnew/wx). Skipped in an IPC plugin process: pcbnew is
 # importable there but registering outside the pcbnew process fails, which
 # would make importing this package fail (#19). No effect inside pcbnew.
+# Also skipped in the IPC build, which ships plugin.json next to this file:
+# KiCad 10 runs it through the IPC API, and registering here as well would
+# give it a second toolbar button.
 from .utils.runtime import in_ipc_plugin_process
 
-if not in_ipc_plugin_process():
+_ipc_build = os.path.exists(os.path.join(os.path.dirname(__file__), "plugin.json"))
+
+if not in_ipc_plugin_process() and not _ipc_build:
     try:
         from .plugin import LCSCManagerPlugin
 
