@@ -83,6 +83,37 @@ Close KiCad completely and reopen it.
 
 Or check the toolbar for a new icon (if icon.png exists).
 
+## Automated and Headless Checks
+
+Every `tests/test_*.py` runs with a plain `python3 tests/<file>.py`. Most need
+nothing but the repository. Some drive **KiCad's bundled Python** and
+`kicad-cli` directly — no KiCad window, no GUI automation — and are skipped on
+machines without KiCad:
+
+- `test_kicad_resolves_tables.py` — builds a project through the real
+  `LibraryManager`, places a footprint by library nickname, and has
+  `kicad-cli pcb drc` resolve it through the tables the plugin wrote (the
+  `lib_footprint_issues` check). It covers both the per-project table and the
+  shared location's global table. `KICAD_CONFIG_HOME` points at a sandbox, so
+  your real KiCad configuration is never touched. Offline; takes a few seconds.
+- `test_kicad_host.py`, `test_ipc_prep.py` — host detection, the settings path
+  and dialog construction under KiCad's own Python.
+
+The same approach works for ad-hoc checks:
+
+```bash
+KPY=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
+KICAD_CONFIG_HOME=/tmp/sandbox "$KPY" my_check.py           # pcbnew, wx, the plugin code
+KICAD_CONFIG_HOME=/tmp/sandbox kicad-cli pcb drc --format json -o out.json board.kicad_pcb
+```
+
+**What still needs a running KiCad:** anything about the *live session*.
+`pcbnew.GetBoard()` only returns the PCB editor window's board, so from a
+command line it is always `None`. That means a script can't see what an open
+session has loaded (e.g. whether a newly registered footprint library shows up
+before the project is reopened), and can't act as the `SwigHost`. For those,
+use **Tools → Scripting Console** inside the PCB Editor.
+
 ## Testing the Plugin
 
 ### Test 1: Open the Dialog

@@ -4,7 +4,7 @@ Library Manager - Manage KiCad project libraries
 This module handles adding components to KiCad project libraries
 and managing library configuration
 """
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import re
 from ..utils.logger import get_logger
@@ -14,21 +14,17 @@ from ..converters.footprint_converter import FootprintConverter
 from ..converters.model_3d_converter import Model3DConverter
 from .lib_table import (ensure_lib_entry, LibTableError, ADDED, UPDATED,
                         CONFLICT)
+from ..utils.kicad_host import KiCadHost, get_host
 
 logger = get_logger()
-
-try:
-    import pcbnew
-    HAS_PCBNEW = True
-except ImportError:
-    HAS_PCBNEW = False
 
 
 class LibraryManager:
     """Manage KiCad project libraries"""
 
     def __init__(self, project_path: Path,
-                 kicad_config_dir: Optional[Path] = None):
+                 kicad_config_dir: Optional[Path] = None,
+                 host: Optional[KiCadHost] = None):
         """
         Initialize library manager
 
@@ -37,9 +33,12 @@ class LibraryManager:
             kicad_config_dir: KiCad's user settings folder (holds the global
                 library tables). Looked up from KiCad when omitted; tests
                 pass a temporary folder.
+            host: the KiCad this runs under (utils/kicad_host.py). Detected
+                when omitted; tests pass a stand-in.
         """
         self.project_path = project_path
         self._kicad_config_dir = kicad_config_dir
+        self.host = host if host is not None else get_host()
         # Set while updating library tables when KiCad's running session
         # won't see a library until the project is reopened / KiCad restarts.
         self._restart_pending = False
@@ -317,12 +316,7 @@ class LibraryManager:
         """KiCad's user settings folder, where the global library tables live."""
         if self._kicad_config_dir is not None:
             return self._kicad_config_dir
-        if HAS_PCBNEW:
-            try:
-                return Path(pcbnew.SETTINGS_MANAGER.GetUserSettingsPath())
-            except Exception as e:
-                self.logger.warning(f"Could not get KiCad settings path: {e}")
-        return None
+        return self.host.user_settings_dir()
 
     def _register_shared_libraries(self) -> List[str]:
         """Register the shared library in KiCad's global library tables, so
@@ -435,108 +429,72 @@ class LibraryManager:
 
     def _update_footprint_lib_table(self) -> Optional[str]:
         """
-        Update fp-lib-table using pcbnew API (in-memory) with file-based fallback.
+        Register the project's footprint library: in the live session where
+        KiCad allows it, otherwise in fp-lib-table on disk.
 
         Returns:
             Notification message if user action is needed, None otherwise
         """
         lib_name = self.config.get("footprint_lib_nickname")
         lib_uri = self.config.get_kiprjmod_uris()["footprint_lib"]
+        table_path = self.project_path.parent / "fp-lib-table"
 
-        # Try pcbnew API first (updates in-memory, immediately available).
-        # KiCad 10 no longer wraps FP_LIB_TABLE / PROJECT for Python, so the
-        # attempt can only fail there — skip it rather than logging a
-        # warning on every import.
-        if HAS_PCBNEW and hasattr(pcbnew, "FP_LIB_TABLE_ROW"):
+        # KiCad 9's pcbnew can add the row to the live session, so the
+        # footprints can be placed straight away.
+        if self.host.can_register_footprint_library_in_memory():
             try:
-                registered = self._register_fp_lib_via_pcbnew(lib_name, lib_uri)
-                if registered:
-                    self.logger.info("Footprint library registered via pcbnew API")
-                    return None
-                else:
-                    self.logger.info("Footprint library already registered in pcbnew")
-                    return None
+                added = self.host.register_footprint_library_in_memory(
+                    lib_name, lib_uri, table_path)
+                self.logger.info("Footprint library registered in memory"
+                                 if added else
+                                 "Footprint library already registered in memory")
+                return None
             except Exception as e:
-                self.logger.warning(f"pcbnew API registration failed, falling back to file: {e}")
+                self.logger.warning(f"In-memory registration failed, falling back to file: {e}")
 
-        # File-based: the only route on KiCad 10.
-        notice = self._update_footprint_lib_table_file(lib_name, lib_uri)
+        # File-based: the only route on KiCad 10 and over IPC.
+        notice, added = self._update_footprint_lib_table_file(lib_name, lib_uri)
         # Only worth saying when there are footprints to place: KiCad 10
         # leaves a library whose folder doesn't exist out of its list even
         # after the project is reopened (e.g. a symbol-only import).
         if (notice is None and self.footprint_lib_path.exists()
-                and not self._fp_library_visible(lib_name)):
-            # Written to disk, but this session loaded the project's tables
-            # when the project opened and has no way to reload them from
-            # Python, so the footprints can't be placed yet. Verified on
-            # KiCad 10.0.6: invisible until the project is reopened, then
-            # listed by pcbnew.GetFootprintLibraries().
+                and self._reload_needed(lib_name, added)):
+            # Written to disk, but the session read the project's tables when
+            # the project opened and can't be made to reread them, so the
+            # footprints can't be placed yet. Verified on KiCad 10.0.6:
+            # invisible until the project is reopened, then listed.
             self._restart_pending = True
             return ("This KiCad session hasn't loaded the LCSC footprint "
                     "library yet. Reopen this project (or restart KiCad) to "
                     "place the imported footprints.")
         return notice
 
-    def _fp_library_visible(self, nickname: str) -> bool:
-        """Whether the running pcbnew already knows a footprint library.
+    def _reload_needed(self, nickname: str, just_added: bool) -> bool:
+        """Whether the running KiCad session still has to load a footprint
+        library registered on disk.
 
-        Answers True when it can't tell (outside KiCad, or an API without
-        GetFootprintLibraries), so a guess never produces a false alarm.
+        pcbnew can say what it has loaded. Over IPC that can't be asked, so a
+        row added just now counts as not loaded: it wasn't in the table when
+        the project opened. With no KiCad session there's nothing to reload.
         """
-        if not HAS_PCBNEW or not hasattr(pcbnew, "GetFootprintLibraries"):
-            return True
-        try:
-            libraries = [str(name) for name in pcbnew.GetFootprintLibraries()]
-        except Exception as e:
-            self.logger.debug(f"GetFootprintLibraries failed: {e}")
-            return True
-        visible = nickname in libraries
-        self.logger.info(f"Footprint library {nickname} visible to this "
-                         f"session: {visible}")
-        return visible
+        loaded = self.host.footprint_library_loaded(nickname)
+        if loaded is None:
+            needed = self.host.session_running and just_added
+        else:
+            needed = not loaded
+        self.logger.info(f"Footprint library {nickname} ({self.host.name} host): "
+                         f"loaded={loaded}, just added={just_added}, "
+                         f"reload notice={needed}")
+        return needed
 
-    def _register_fp_lib_via_pcbnew(self, lib_name: str, lib_uri: str) -> bool:
+    def _update_footprint_lib_table_file(self, lib_name: str,
+                                         lib_uri: str) -> Tuple[Optional[str], bool]:
         """
-        Register footprint library using pcbnew API (in-memory update).
-
-        Args:
-            lib_name: Library nickname
-            lib_uri: Library URI path
+        Update fp-lib-table file directly.
 
         Returns:
-            True if newly registered, False if already existed
-
-        Raises:
-            Exception: If pcbnew API call fails
-        """
-        board = pcbnew.GetBoard()
-        if not board:
-            raise RuntimeError("No board loaded")
-
-        fp_lib_table = board.GetProject().PcbFootprintLibs()
-
-        # Check if already registered
-        if fp_lib_table.HasLibrary(lib_name):
-            return False
-
-        # Create new library table row
-        row = pcbnew.FP_LIB_TABLE_ROW(lib_name, lib_uri, "KiCad", "")
-        row.SetDescr("LCSC imported footprints")
-        fp_lib_table.InsertRow(row)
-
-        # Save to disk so it persists across sessions
-        lib_table_path = self.project_path.parent / "fp-lib-table"
-        fp_lib_table.Save(str(lib_table_path))
-
-        self.logger.info(f"Footprint library registered via pcbnew API: {lib_name}")
-        return True
-
-    def _update_footprint_lib_table_file(self, lib_name: str, lib_uri: str) -> Optional[str]:
-        """
-        Update fp-lib-table file directly (fallback when pcbnew API unavailable).
-
-        Returns:
-            Notification message if user action is needed, None otherwise
+            (notification message if user action is needed, else None;
+             whether the row was added just now)
         """
         lib_table_path = self.project_path.parent / "fp-lib-table"
 
@@ -547,7 +505,7 @@ class LibraryManager:
 
                 if lib_name in content:
                     self.logger.info("Footprint library already registered")
-                    return None
+                    return None, False
 
                 content = content.rstrip().rstrip(')')
 
@@ -567,11 +525,11 @@ class LibraryManager:
                 f.write(content)
 
             self.logger.info(f"Footprint library table file updated: {lib_table_path}")
-            return None
+            return None, True
 
         except Exception as e:
             self.logger.error(f"Failed to update footprint library table: {e}")
-            return f"Failed to register footprint library: {e}"
+            return f"Failed to register footprint library: {e}", False
 
     def get_library_info(self) -> Dict[str, Any]:
         """
