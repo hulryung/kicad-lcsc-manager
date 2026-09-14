@@ -220,7 +220,12 @@ class LCSCManagerSearchDialog(wx.Dialog):
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         search_btn = wx.Button(panel, label="Search")
         search_btn.Bind(wx.EVT_BUTTON, self._on_search)
-        btn_sizer.Add(search_btn, 0, wx.ALIGN_RIGHT)
+        # No alignment flag here: a horizontal sizer only honours vertical
+        # ones, and wx asserts on wxALIGN_RIGHT. Inside pcbnew KiCad swallows
+        # that; in a standalone wxPython app (an IPC plugin process) it's an
+        # exception that stops the dialog opening (#19). The vertical sizer
+        # below is what right-aligns the button.
+        btn_sizer.Add(search_btn, 0)
         sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
 
         panel.SetSizer(sizer)
