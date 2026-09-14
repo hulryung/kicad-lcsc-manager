@@ -71,10 +71,10 @@ def test_footprint_lib_table_uses_config_uri():
         from lcsc_manager.library.library_manager import LibraryManager
         lm = LibraryManager(proj_file)
 
-        # Force the file-based fallback path
-        notif = lm._update_footprint_lib_table_file("lcsc_footprints",
-                                                   lm.config.get_kiprjmod_uris()["footprint_lib"])
-        assert notif is None
+        # Force the file-based path; it reports whether it added the row.
+        notif, added = lm._update_footprint_lib_table_file(
+            "lcsc_footprints", lm.config.get_kiprjmod_uris()["footprint_lib"])
+        assert notif is None and added is True
         table = (proj_file.parent / "fp-lib-table").read_text()
         assert "${KIPRJMOD}/assets/lcsc/fp.pretty" in table
         assert "libs/lcsc/footprints.pretty" not in table

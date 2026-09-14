@@ -80,18 +80,14 @@ def validate_path_value(key: str, raw: str) -> Optional[str]:
 def expand_path_vars(raw: str) -> str:
     """Expand ${VAR} and ~ in a user-entered folder path.
 
-    Inside KiCad, pcbnew.ExpandEnvVarSubstitutions knows the path variables
-    from Preferences → Configure Paths as well as the OS environment; outside
-    it (tests), only the OS environment is available. Undefined variables are
-    left as "${NAME}" so callers can detect them. Neither expands "~".
+    The KiCad host decides how: inside pcbnew with KiCad's own expansion
+    (which knows Preferences → Configure Paths), in an IPC plugin from
+    kicad_common.json plus the environment, elsewhere from the environment
+    only. Undefined variables are left as "${NAME}" so callers can detect
+    them.
     """
-    expanded = raw.strip()
-    try:
-        import pcbnew  # noqa: WPS433 — only available inside KiCad
-        expanded = pcbnew.ExpandEnvVarSubstitutions(expanded, None)
-    except Exception:
-        expanded = os.path.expandvars(expanded)
-    return os.path.expanduser(expanded)
+    from .kicad_host import get_host
+    return get_host().expand_path_vars(raw)
 
 
 def validate_shared_path(raw: str) -> Optional[str]:
