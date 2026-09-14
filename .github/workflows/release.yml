@@ -36,95 +36,36 @@ jobs:
           echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
-      - name: Update version in __init__.py
+      - name: Check __version__
         run: |
           if ! grep -q "__version__ = \"${{ steps.version.outputs.version }}\"" plugins/lcsc_manager/__init__.py; then
-            echo "::warning::The tagged commit's __version__ isn't ${{ steps.version.outputs.version }}; the package gets the tag's version, but main's __init__.py is left as it is."
+            echo "::warning::The tagged commit's __version__ isn't ${{ steps.version.outputs.version }}; the packages get their own versions stamped in, but main's __init__.py is left as it is."
           fi
-          sed -i "s/__version__ = \".*\"/__version__ = \"${{ steps.version.outputs.version }}\"/" plugins/lcsc_manager/__init__.py
-          cat plugins/lcsc_manager/__init__.py | grep __version__
 
       - name: Bundle Python dependencies
         run: |
           chmod +x scripts/bundle-dependencies.sh
           ./scripts/bundle-dependencies.sh
 
-      - name: Create release directory structure
-        run: |
-          mkdir -p release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/plugins
-          mkdir -p release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/resources
-
-      - name: Copy plugin files (excluding cache)
-        run: |
-          rsync -av \
-            --exclude='__pycache__/' \
-            --exclude='*.pyc' \
-            --exclude='.pytest_cache/' \
-            --exclude='*.egg-info/' \
-            plugins/lcsc_manager/ release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/plugins/
-
-      - name: Copy resources (icon)
-        run: |
-          cp plugins/lcsc_manager/plugin_resources/icon.png release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/resources/
-
-      - name: Create package metadata.json
-        run: |
-          cat > release/kicad-lcsc-manager-${{ steps.version.outputs.version }}/metadata.json << 'EOF'
-          {
-            "$schema": "https://go.kicad.org/pcm/schemas/v1",
-            "name": "LCSC Manager",
-            "description": "Import components from LCSC/EasyEDA with symbols, footprints, and 3D models",
-            "description_full": "A KiCad plugin that allows you to search and import electronic components from LCSC/EasyEDA and JLCPCB directly into your KiCad projects. Features include automatic download of symbols, footprints, and 3D models (both WRL and STEP formats), integration with JLCPCB API for real-time stock and pricing information, and seamless addition to project-specific libraries.",
-            "identifier": "com.github.hulryung.kicad-lcsc-manager",
-            "type": "plugin",
-            "author": {
-              "name": "hulryung",
-              "contact": {
-                "web": "https://github.com/hulryung/kicad-lcsc-manager"
-              }
-            },
-            "license": "MIT",
-            "resources": {
-              "homepage": "https://github.com/hulryung/kicad-lcsc-manager",
-              "repository": "https://github.com/hulryung/kicad-lcsc-manager"
-            },
-            "versions": [
-              {
-                "version": "${{ steps.version.outputs.version }}",
-                "status": "stable",
-                "kicad_version": "9.0"
-              }
-            ]
-          }
-          EOF
-
-      - name: Create package ZIP
-        run: |
-          cd release/kicad-lcsc-manager-${{ steps.version.outputs.version }}
-          zip -r ../kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip .
-          cd ../..
-
-      - name: Verify package structure
-        run: |
-          echo "=== Package contents (first 40 lines) ==="
-          unzip -l release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip | head -40
-          echo ""
-          echo "=== Checking for __pycache__ ==="
-          if unzip -l release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip | grep -i pycache; then
-            echo "::error::The package contains __pycache__ entries (listed above)."
-            exit 1
-          fi
-          echo "✓ No pycache files found"
-
-      - name: Calculate package SHA256 and size
+      # Two zips per release, one version entry each (scripts/pcm_builds.py):
+      # the SWIG build X.Y.Z for KiCad 9/10 and the IPC build (X+1).Y.Z for
+      # KiCad 11. The script checks each zip (no bytecode, the right
+      # metadata and version, plugin.json only in the IPC build) and fails
+      # the run if one is wrong.
+      - name: Build packages
         id: package
         run: |
-          SHA256=$(sha256sum release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip | awk '{print $1}')
-          SIZE=$(stat -c%s release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip)
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-          echo "size=$SIZE" >> $GITHUB_OUTPUT
-          echo "Package SHA256: $SHA256"
-          echo "Package Size: $SIZE bytes"
+          python3 scripts/build-packages.py "${{ steps.version.outputs.version }}" release
+          for zip in release/*.zip; do
+            echo "=== $zip (first 25 entries) ==="
+            unzip -l "$zip" | sed -n '1,28p'    # not head: it would SIGPIPE unzip
+          done
+          python3 - >> "$GITHUB_OUTPUT" <<'EOF'
+          import json
+          for build in json.load(open("release/builds.json")):
+              print(f"{build['runtime']}_version={build['version']}")
+              print(f"{build['runtime']}_zip={build['zip']}")
+          EOF
 
       - name: Generate release notes
         id: release_notes
@@ -142,20 +83,26 @@ jobs:
             echo "Initial release" >> release_notes.md
           fi
 
-          echo "" >> release_notes.md
-          echo "## Installation" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "Install via custom repository URL:" >> release_notes.md
-          echo '```' >> release_notes.md
-          echo "https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/repository.json" >> release_notes.md
-          echo '```' >> release_notes.md
+          cat >> release_notes.md <<'EOF'
+
+          ## Installation
+
+          Add this custom repository in KiCad's Plugin and Content Manager; it offers the right build for your KiCad:
+          ```
+          https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/repository.json
+          ```
+
+          Or download a package and use **Install from File…**:
+          EOF
+          echo "- KiCad 9 or 10: \`${{ steps.package.outputs.swig_zip }}\` (version ${{ steps.package.outputs.swig_version }})" >> release_notes.md
+          echo "- KiCad 11, or its 10.99 nightlies: \`${{ steps.package.outputs.ipc_zip }}\` (version ${{ steps.package.outputs.ipc_version }}). It runs through KiCad's IPC API, so KiCad asks to turn the API server on when you install it." >> release_notes.md
 
           cat release_notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip
+          files: release/*.zip
           body_path: release_notes.md
           draft: false
           prerelease: false
@@ -169,16 +116,20 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          ./scripts/publish-metadata.sh "${{ steps.version.outputs.version }}" \
-            "release/kicad-lcsc-manager-${{ steps.version.outputs.version }}.zip"
+          ./scripts/publish-metadata.sh "${{ steps.version.outputs.version }}" release/*.zip
 
       - name: Summary
         run: |
           echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Package SHA256**: \`${{ steps.package.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Package Size**: ${{ steps.package.outputs.size }} bytes" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          python3 - >> $GITHUB_STEP_SUMMARY <<'EOF'
+          import json
+          for b in json.load(open("release/builds.json")):
+              kicad = b["kicad_version"] + (f" to {b['kicad_version_max']}" if b.get("kicad_version_max") else "+")
+              print(f"- **{b['runtime'].upper()} build {b['version']}** (KiCad {kicad}): `{b['zip']}`, "
+                    f"{b['download_size']} bytes, SHA256 `{b['download_sha256']}`")
+          EOF
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Installation URL" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

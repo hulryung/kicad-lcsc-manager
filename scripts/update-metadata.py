@@ -2,215 +2,118 @@
 """
 Update metadata files for KiCad PCM custom repository.
 
-This script updates metadata.json, packages.json, and repository.json
-with information about a new package version.
+This script records a release's packages in metadata.json and packages.json
+(one version entry per build; see pcm_builds.py) and refreshes
+repository.json. It works on the files in the current directory.
 
 Usage:
-    python scripts/update-metadata.py <version> <package_file>
+    python scripts/update-metadata.py <version> <package.zip>...
 
 Example:
-    python scripts/update-metadata.py 0.3.0 release/kicad-lcsc-manager-0.3.0.zip
+    python scripts/update-metadata.py 0.9.0 release/kicad-lcsc-manager-0.9.0.zip \\
+        release/kicad-lcsc-manager-1.9.0-ipc.zip
 """
 
-import sys
 import json
-import hashlib
-from datetime import datetime
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-
-def calculate_sha256(file_path: Path) -> str:
-    """Calculate SHA256 hash of a file."""
-    sha256_hash = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
+from pcm_builds import builds_for, parse_version, release_entry, sha256_of, version_clashes
 
 
-def get_file_size(file_path: Path) -> int:
-    """Get file size in bytes."""
-    return file_path.stat().st_size
+def release_entries(version: str, packages):
+    """One entry per build of the release, from its zip. Every build must be
+    there, and nothing else."""
+    builds = builds_for(version)
+    given = {Path(p).name: Path(p) for p in packages}
+    expected = [b.zip_name for b in builds]
+    if sorted(given) != sorted(expected):
+        raise ValueError(f"v{version} is published as {expected}; got {sorted(given)}")
+    for path in given.values():
+        if not path.is_file():
+            raise ValueError(f"package file not found: {path}")
+    return [release_entry(b, given[b.zip_name]) for b in builds]
 
 
-def update_metadata_json(version: str, sha256: str, size: int) -> None:
-    """Update metadata.json in repository root."""
-    metadata_file = Path("metadata.json")
-
-    if not metadata_file.exists():
-        print(f"ERROR: {metadata_file} not found")
-        sys.exit(1)
-
-    with open(metadata_file, 'r') as f:
-        metadata = json.load(f)
-
-    # Check if version already exists
-    existing_versions = [v['version'] for v in metadata['versions']]
-
-    # Create new version entry
-    new_version = {
-        "version": version,
-        "status": "stable",
-        "kicad_version": "9.0",
-        "download_url": f"https://github.com/hulryung/kicad-lcsc-manager/releases/download/v{version}/kicad-lcsc-manager-{version}.zip",
-        "download_sha256": sha256,
-        "download_size": size,
-        "install_size": 250000
-    }
-
-    # Update or add version
-    if version in existing_versions:
-        print(f"Updating existing version {version} in metadata.json")
-        for i, v in enumerate(metadata['versions']):
-            if v['version'] == version:
-                metadata['versions'][i] = new_version
+def record(versions: list, entries: list) -> list:
+    """versions with entries added: an entry for a version already listed
+    replaces it in place, new ones go first, newest first. A version already
+    listed for the other runtime is refused."""
+    clashes = version_clashes(entries, versions)
+    if clashes:
+        raise ValueError("; ".join(clashes))
+    result = list(versions)
+    new = []
+    for entry in entries:
+        for i, old in enumerate(result):
+            if old["version"] == entry["version"]:
+                result[i] = entry
                 break
-    else:
-        print(f"Adding new version {version} to metadata.json")
-        metadata['versions'].insert(0, new_version)
-
-    # Write updated metadata
-    with open(metadata_file, 'w') as f:
-        json.dump(metadata, f, indent=2)
-        f.write('\n')
-
-    print(f"✓ Updated {metadata_file}")
+        else:
+            new.append(entry)
+    new.sort(key=lambda e: parse_version(e["version"]), reverse=True)
+    return new + result
 
 
-def update_packages_json(version: str, sha256: str, size: int) -> None:
-    """Update packages.json."""
-    packages_file = Path("packages.json")
+VERSION_LISTS = {
+    "metadata.json": lambda data: data["versions"],
+    "packages.json": lambda data: data["packages"][0]["versions"],
+}
 
-    if not packages_file.exists():
-        print(f"ERROR: {packages_file} not found")
-        sys.exit(1)
 
-    with open(packages_file, 'r') as f:
-        packages_data = json.load(f)
-
-    # Update first package (should only be one)
-    package = packages_data['packages'][0]
-
-    # Check if version exists
-    existing_versions = [v['version'] for v in package['versions']]
-
-    new_version = {
-        "version": version,
-        "status": "stable",
-        "kicad_version": "9.0",
-        "download_url": f"https://github.com/hulryung/kicad-lcsc-manager/releases/download/v{version}/kicad-lcsc-manager-{version}.zip",
-        "download_sha256": sha256,
-        "download_size": size,
-        "install_size": 250000
-    }
-
-    if version in existing_versions:
-        print(f"Updating existing version {version} in packages.json")
-        for i, v in enumerate(package['versions']):
-            if v['version'] == version:
-                package['versions'][i] = new_version
-                break
-    else:
-        print(f"Adding new version {version} to packages.json")
-        package['versions'].insert(0, new_version)
-
-    # Write updated packages
-    with open(packages_file, 'w') as f:
-        json.dump(packages_data, f, indent=2)
-        f.write('\n')
-
-    print(f"✓ Updated {packages_file}")
+def update_version_lists(entries) -> None:
+    """Record the entries in metadata.json and packages.json: both or
+    neither (raises ValueError before writing anything)."""
+    updated = {}
+    for name, get_versions in VERSION_LISTS.items():
+        data = json.loads(Path(name).read_text(encoding="utf-8"))
+        versions = get_versions(data)
+        versions[:] = record(versions, entries)
+        updated[name] = data
+    for name, data in updated.items():
+        Path(name).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        print(f"✓ Updated {name}")
 
 
 def update_repository_json() -> None:
-    """Update repository.json with new packages.json hash."""
-    packages_file = Path("packages.json")
+    """Point repository.json at the new packages.json."""
     repository_file = Path("repository.json")
-
-    if not repository_file.exists():
-        print(f"ERROR: {repository_file} not found")
-        sys.exit(1)
-
-    # Calculate packages.json SHA256
-    packages_sha256 = calculate_sha256(packages_file)
-
-    # Get current UTC time
-    now = datetime.utcnow()
-    update_time = now.strftime('%Y-%m-%d %H:%M:%S')
-    update_timestamp = int(now.timestamp())
-
-    # Read repository.json
-    with open(repository_file, 'r') as f:
-        repo = json.load(f)
-
-    # Update packages info
-    repo['packages']['sha256'] = packages_sha256
-    repo['packages']['update_time_utc'] = update_time
-    repo['packages']['update_timestamp'] = update_timestamp
-
-    # Write updated repository.json
-    with open(repository_file, 'w') as f:
-        json.dump(repo, f, indent=2)
-        f.write('\n')
-
+    repo = json.loads(repository_file.read_text(encoding="utf-8"))
+    now = datetime.now(timezone.utc)
+    repo["packages"]["sha256"] = sha256_of(Path("packages.json"))
+    repo["packages"]["update_time_utc"] = now.strftime("%Y-%m-%d %H:%M:%S")
+    repo["packages"]["update_timestamp"] = int(now.timestamp())
+    repository_file.write_text(json.dumps(repo, indent=2) + "\n", encoding="utf-8")
     print(f"✓ Updated {repository_file}")
-    print(f"  packages.json SHA256: {packages_sha256}")
-    print(f"  Update time: {update_time}")
 
 
-def main():
-    if len(sys.argv) != 3:
-        print("Usage: python scripts/update-metadata.py <version> <package_file>")
-        print("Example: python scripts/update-metadata.py 0.3.0 release/kicad-lcsc-manager-0.3.0.zip")
-        sys.exit(1)
+def main(argv) -> int:
+    if len(argv) < 3:
+        print(__doc__.strip(), file=sys.stderr)
+        return 1
+    version = argv[1]
+    try:
+        entries = release_entries(version, argv[2:])
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    for name in ("metadata.json", "packages.json", "repository.json"):
+        if not Path(name).exists():
+            print(f"ERROR: {name} not found", file=sys.stderr)
+            return 1
 
-    version = sys.argv[1]
-    package_file = Path(sys.argv[2])
-
-    # Validate version format
-    parts = version.split('.')
-    if len(parts) != 3 or not all(p.isdigit() for p in parts):
-        print(f"ERROR: Invalid version format '{version}'. Use semantic versioning (e.g., 1.0.0)")
-        sys.exit(1)
-
-    # Check if package file exists
-    if not package_file.exists():
-        print(f"ERROR: Package file not found: {package_file}")
-        sys.exit(1)
-
-    print(f"Updating metadata for version {version}")
-    print(f"Package: {package_file}")
-    print()
-
-    # Calculate package hash and size
-    print("Calculating package SHA256 and size...")
-    sha256 = calculate_sha256(package_file)
-    size = get_file_size(package_file)
-
-    print(f"  SHA256: {sha256}")
-    print(f"  Size: {size} bytes")
-    print()
-
-    # Update all metadata files
-    update_metadata_json(version, sha256, size)
-    update_packages_json(version, sha256, size)
+    for entry in entries:
+        print(f"v{version}: {entry['version']} ({entry['runtime']}) "
+              f"sha256 {entry['download_sha256']}, {entry['download_size']} bytes")
+    try:
+        update_version_lists(entries)
+    except ValueError as e:
+        print(f"ERROR: v{version} can't be published: {e}", file=sys.stderr)
+        return 1
     update_repository_json()
-
-    print()
-    print("=" * 60)
-    print("✓ All metadata files updated successfully!")
-    print("=" * 60)
-    print()
-    print("Next steps:")
-    print("  1. Review the changes:")
-    print("     git diff metadata.json packages.json repository.json")
-    print()
-    print("  2. Commit and push:")
-    print(f"     git add metadata.json packages.json repository.json")
-    print(f'     git commit -m "Release v{version}"')
-    print("     git push")
-    print()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv))

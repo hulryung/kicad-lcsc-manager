@@ -17,6 +17,10 @@ Assemble the IPC plugin folder with:
 
     python3 scripts/assemble-ipc-plugin.py <dest>
 
+Releases ship it as the IPC build: tag `vX.Y.Z` publishes it as version
+`(X+1).Y.Z` for KiCad 11, next to the SWIG build `X.Y.Z` for KiCad 9 and 10
+(`scripts/build-packages.py`; see `docs/PACKAGING.md`).
+
 To try it with KiCad 10: enable the API server (Preferences → Plugins),
 assemble into the user plugin folder (for example
 `~/Documents/KiCad/10.0/plugins/lcsc-manager` on macOS), and restart KiCad.
