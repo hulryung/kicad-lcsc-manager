@@ -281,18 +281,22 @@ def _update(folder, *args):
                           cwd=folder, capture_output=True, text=True)
 
 
+# A release that will never be published, so it's new to any packages.json.
+UNPUBLISHED = "0.999.0"
+
+
 def test_update_metadata_records_both_builds():
-    out, built = _build()
+    out, built = _build(UNPUBLISHED)
     folder = _metadata_copy()
     lists = (("packages.json", lambda d: d["packages"][0]["versions"]),
              ("metadata.json", lambda d: d["versions"]))
     before = {name: get(json.loads((folder / name).read_text())) for name, get in lists}
     zips = [out / built["swig"]["zip"], out / built["ipc"]["zip"]]
-    run = _update(folder, "0.9.0", *zips)
+    run = _update(folder, UNPUBLISHED, *zips)
     assert run.returncode == 0, run.stderr
     for name, get in lists:
         versions = get(json.loads((folder / name).read_text()))
-        assert [v["version"] for v in versions[:2]] == ["1.9.0", "0.9.0"], name
+        assert [v["version"] for v in versions[:2]] == ["1.999.0", "0.999.0"], name
         assert versions[2:] == before[name], f"{name}: earlier releases must stay as they were"
         for entry, build in zip(versions[:2], (built["ipc"], built["swig"])):
             assert entry == {k: v for k, v in build.items() if k != "zip"}, (entry, build)
@@ -301,7 +305,7 @@ def test_update_metadata_records_both_builds():
     assert repo["packages"]["sha256"] == pcm_builds.sha256_of(folder / "packages.json")
     # Again with the same zips: nothing changes, nothing is duplicated.
     snapshot = (folder / "packages.json").read_text()
-    assert _update(folder, "0.9.0", *zips).returncode == 0
+    assert _update(folder, UNPUBLISHED, *zips).returncode == 0
     assert (folder / "packages.json").read_text() == snapshot
     print("test_update_metadata_records_both_builds: PASS")
 

@@ -28,9 +28,15 @@ this plugin. The plugin as a whole can continue to be distributed because
 AGPL-3.0 permits aggregation with MIT-licensed code; just keep the
 vendored files' license intact.
 
-## JLC2KiCad_lib (AGPL-3.0)
+## JLC2KiCad_lib (MIT)
 
 Symbol-conversion handlers under
 `plugins/lcsc_manager/converters/jlc2kicad/` were originally adapted from
-[TousstNicolas/JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib).
-This is AGPL-3.0 derived code; the same redistribution terms apply.
+[TousstNicolas/JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib),
+which is licensed under the **MIT License**, as it has been since its first
+commit in 2021. Its copyright and permission notice is kept next to the
+adapted code, so it ships with every package.
+
+- Source: https://github.com/TousstNicolas/JLC2KiCad_lib
+- License: MIT
+- License text: `plugins/lcsc_manager/converters/jlc2kicad/LICENSE`

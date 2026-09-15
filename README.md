@@ -1,473 +1,308 @@
-# KiCad LCSC Manager Plugin
+# KiCad LCSC Manager
 
-A KiCad plugin that allows you to search and import electronic components from LCSC/EasyEDA and JLCPCB directly into your KiCad projects, including symbols, footprints, and 3D models.
+A KiCad plugin to search LCSC/JLCPCB parts and import their symbols,
+footprints and 3D models from EasyEDA straight into your project's
+libraries.
 
-> **🚀 v0.5.0 — Footprint pipeline switched to upstream (2026-05-11)**: The footprint converter is now backed by a vendored copy of [easyeda2kicad.py v1.0.1](https://github.com/uPesy/easyeda2kicad.py) (see `plugins/lcsc_manager/vendor/easyeda2kicad/`), eliminating the `KicadModTree` runtime dependency. Footprints that previously fell back to a 2-pad placeholder on installs without `KicadModTree` now convert correctly. See [CHANGELOG.md](CHANGELOG.md) and [NOTICE.md](NOTICE.md) for licensing.
->
-> **v0.4.0** added a Settings dialog and per-project / global library-path overrides — see the "Customizing library paths" section below.
+![LCSC Manager search dialog](docs/images/screenshot-main-dialog.png)
 
-## ✨ Features
+What changed in each release: [CHANGELOG.md](CHANGELOG.md) and the
+[Releases page](https://github.com/hulryung/kicad-lcsc-manager/releases).
 
-### Advanced Component Search
-- 🔍 **Multi-parameter search**: Search by component name, value, package type, and manufacturer
-- 📊 **Rich search results**: View LCSC ID, name, package, price, stock, and library type (Basic/Extended)
-- 🔀 **Sortable columns**: Click column headers to sort results by any field
-- 👁️ **High-quality previews**: Symbol and footprint previews rendered directly from EasyEDA's SVG API
-- ⚡ **Fully asynchronous**: Previews load independently — browse and import without waiting
-- 💾 **Preview caching**: Better performance with cached previews
-- ⌨️ **Keyboard support**: Enter to search, ESC to close
+## Features
 
-### Component Import
-- 📦 Automatically download symbols, footprints, and 3D models (WRL and STEP formats)
-- 💰 Real-time stock, pricing, and datasheet information from JLCPCB API
-- 📚 Add components to project-specific libraries
-- ⚠️ Smart overwrite detection with selective import options
-- 🎨 Seamless integration with KiCad 9.0+
-- 🔄 Support for both LCSC/EasyEDA and JLCPCB parts
+- **Search** LCSC by part name, value or LCSC number (`RP2040`, `10uF`,
+  `C2040`), optionally filtered by package. Results show package, price,
+  stock and Basic/Extended type; click a column header to sort, and load
+  more pages as you go.
+- **Preview** before importing: EasyEDA's own symbol and footprint drawings,
+  plus a specifications tab with the part's parameters, datasheet and LCSC
+  product page. Previews load in the background, so you can keep browsing.
+- **Import** the symbol, the footprint and the 3D model (STEP and WRL, linked
+  from the footprint). The libraries are added to KiCad's library tables for
+  you.
+- **Keep going:** the dialog stays open after an import, and a status line
+  lists what you've imported so far.
+- **Import a whole BOM:** JLCPCB, EasyEDA and KiCad BOMs with an LCSC part
+  number column, in one pass.
+- **Choose where parts go:** inside each project (the default) or one shared
+  library folder for all projects, with settings per project or global.
+- Runs on Windows, macOS and Linux with KiCad 9 and 10, and has a build for
+  KiCad 11 (in development).
 
-### BOM Import
-- 📄 **Batch-import from a BOM file**: the **Import BOM…** button imports every LCSC part in a JLCPCB / EasyEDA / KiCad BOM in one pass
-- 🧠 **Auto-detects the LCSC part-number column** (`LCSC Part #`, `LCSC Part Number`, `LCSC`, …), de-duplicates repeated parts, and skips rows without an LCSC number
-- ☑️ **Preview & pick**: choose which parts and which of symbol / footprint / 3D model to import
-- 📈 **Progress + summary**: cancellable progress, then a report of what imported and what failed
-- 🗂️ CSV natively (`.xlsx` with the optional `openpyxl` package); non-ASCII exports decoded automatically
+## Installation
 
-## 📥 Installation
+LCSC Manager isn't in KiCad's official add-on repository ([why](#why-isnt-it-in-kicads-official-repository)),
+but it has its own repository that gives you the same one-click install and
+update notifications.
 
-> **Note about KiCad PCM**: This plugin is **not available in the official KiCad Plugin and Content Manager** due to KiCad's commercial services policy. Plugins that directly integrate with commercial APIs (like LCSC/JLCPCB) require a formal contract between the service provider and the KiCad team. As a third-party developer, I cannot submit to the official PCM. However, you can install it through the methods below.
-
-### Method 1: Install via Custom Repository (Easiest)
-
-1. Open the **Plugin and Content Manager**:
-   - From the **main KiCad window** (the project launcher), click the
-     **Plugin and Content Manager** button/icon, **or**
-   - From an editor, go to **Tools → Plugin and Content Manager**
-
-   > **macOS note:** If you don't see it under the *Tools* menu, look on the
-   > main KiCad launcher window instead — on some builds the entry only lives
-   > there (toward the bottom of the window), not inside the PCB/Schematic
-   > editors.
-2. Click **Manage...** (bottom-left)
-3. Click **Add Repository**, paste this URL, and click **OK**:
+1. Open the **Plugin and Content Manager**: the button in the main KiCad
+   window, or **Tools → Plugin and Content Manager** in an editor. (On some
+   macOS builds it's only in the main window.)
+2. Click **Manage…** (bottom left), then **Add Repository**, paste this URL
+   and click **OK**:
    ```
    https://raw.githubusercontent.com/hulryung/kicad-lcsc-manager/main/repository.json
    ```
-4. Close the repository manager, then switch the **repository dropdown**
-   (top of the PCM) to **LCSC Manager** so the plugin appears in the list
-5. Select **LCSC Manager** and click **Install**
-6. Click **Apply Pending Changes** (bottom-right) — this is what actually
-   downloads and installs the plugin
-7. **Quit and restart KiCad completely.** If the plugin still doesn't load
-   (the Install button hangs, or no icon appears), reboot your machine — on
-   macOS a stale KiCad/Python state can block the first load until a full
-   restart.
+3. Close the repository manager and pick **LCSC Manager** in the repository
+   drop-down at the top.
+4. Select **LCSC Manager**, click **Install**, then **Apply Pending Changes**.
+5. Quit and restart KiCad. If the plugin doesn't show up, see
+   [Troubleshooting](INSTALL.md#troubleshooting).
 
 > **Which build you get:** every release comes in two builds, and the
 > repository offers the one that fits your KiCad. KiCad 9 and 10 get the 0.x
-> build. KiCad 11 (now in development) drops the Python scripting API that
-> build uses, so it gets the 1.x build of the same release, which runs
-> through KiCad's IPC API instead. When you install that one, KiCad offers
-> to turn on its API server; say yes, or turn it on later under
-> **Preferences → Plugins**.
+> build. KiCad 11 drops the Python scripting API that build uses, so it gets
+> the 1.x build of the same release, which runs through KiCad's IPC API
+> instead. When you install that one, KiCad offers to turn on its API
+> server; say yes, or turn it on later under **Preferences → Plugins**.
 
-### Method 2: Manual Installation
+**Manual installation** (KiCad 9 or 10): download `kicad-lcsc-manager-X.Y.Z.zip`
+from the [Releases page](https://github.com/hulryung/kicad-lcsc-manager/releases)
+and copy everything *inside* its `plugins/` folder into a folder named
+`lcsc_manager` under `3rdparty/plugins/` in your KiCad documents folder
+(e.g. `~/Documents/KiCad/10.0/3rdparty/plugins/lcsc_manager/` on macOS). Don't
+unzip it there as-is: a folder named `plugins` won't load. For KiCad 11, use
+the `-ipc.zip` with the Plugin and Content Manager's **Install from File…**
+instead. [INSTALL.md](INSTALL.md) has the paths for every platform and
+troubleshooting steps.
 
-> **Don't extract the release ZIP straight into your plugins folder.** It is a
-> **KiCad PCM package**: its `plugins/` directory holds the module's *contents*,
-> which the PCM unpacks into `3rdparty/plugins/<package identifier>/`. Dropping
-> the archive in as-is leaves you with a folder literally named `plugins`, which
-> KiCad will not load ([#18](https://github.com/hulryung/kicad-lcsc-manager/issues/18)).
-> Copy the contents into a folder named `lcsc_manager`, as described below.
+**Linux:** component previews need wxPython's WebView package
+(`sudo apt install python3-wxgtk-webview4.0` on Debian/Ubuntu,
+`sudo dnf install python3-wxpython4-webview` on Fedora). Without it
+everything else works, and the previews show a placeholder.
 
-1. **Download the latest release**
-   - Go to [Releases](https://github.com/hulryung/kicad-lcsc-manager/releases)
-   - Download `kicad-lcsc-manager-x.x.x.zip` from the latest release. (The
-     `-ipc.zip` next to it is the KiCad 11 build; install that one with the
-     PCM's **Install from File…** instead.)
+## Usage
 
-2. **Extract it somewhere temporary**, then copy everything *inside* the ZIP's
-   `plugins/` directory into a new `lcsc_manager` folder in your KiCad plugins
-   directory. Replace `<KICAD_VERSION>` with the version you run — `9.0`,
-   `10.0`, and so on:
+### Opening LCSC Manager
 
-   - **Windows**:
-     ```
-     C:\Users\[USERNAME]\Documents\KiCad\<KICAD_VERSION>\3rdparty\plugins\lcsc_manager\
-     ```
-   - **macOS**:
-     ```
-     ~/Documents/KiCad/<KICAD_VERSION>/3rdparty/plugins/lcsc_manager/
-     ```
-   - **Linux**:
-     ```
-     ~/.local/share/kicad/<KICAD_VERSION>/3rdparty/plugins/lcsc_manager/
-     ```
+Open a **saved** project, then:
 
-   The result must look like this — note `__init__.py` sits directly inside
-   `lcsc_manager/`, not inside a nested `plugins/`:
+- **KiCad 9 and 10:** in the **PCB Editor**, click the LCSC Manager toolbar
+  button or choose **Tools → External Plugins → LCSC Manager**. These KiCad
+  versions only run Python plugins in the PCB Editor. Imported symbols still
+  go to the project's symbol library, for use in the Schematic Editor.
+- **KiCad 11:** click the toolbar button in the **PCB Editor** or the
+  **Schematic Editor**.
 
-   ```
-   [kicad-plugins-directory]/
-   └── lcsc_manager/
-       ├── __init__.py
-       ├── plugin.py
-       ├── dialog_search.py
-       ├── api/
-       ├── library/
-       ├── lib/          ← bundled requests / urllib3
-       └── ...
-   ```
+### Searching and importing
 
-   The ZIP's `metadata.json` and `resources/` are only used by the PCM; a manual
-   install doesn't need them.
+1. Type a part name, value or LCSC number and press **Enter**. Add a package
+   (`0603`, `SOT23`, `LQFP`) to narrow the results.
+2. Select a result to see its symbol, footprint and specifications.
+3. Choose what to import (symbol, footprint, 3D model) and click
+   **Import Selected**.
+4. Search and import as many parts as you like; click **Close** when done.
 
-3. **Python dependencies — nothing to install.** `requests` and its
-   dependencies ship inside the package under `lcsc_manager/lib/`, pinned to a
-   version that works with KiCad's bundled Python.
+**Import destination** at the bottom of the dialog shows where parts will
+go. By default that's inside the project:
 
-   **Linux only — WebView backend for the full search dialog.** Most distros
-   ship wxPython's WebView component as a separate system package. Without it
-   the full search dialog still works, but component previews are disabled
-   (older plugin versions fell back to a basic dialog entirely):
+| What | Where | Library name |
+| --- | --- | --- |
+| Symbols | `<project>/libs/lcsc/symbols/lcsc_imported.kicad_sym` | `lcsc_imported` |
+| Footprints | `<project>/libs/lcsc/footprints.pretty/` | `lcsc_footprints` |
+| 3D models | `<project>/libs/lcsc/3dmodels/` | |
 
-   ```bash
-   # Debian / Ubuntu
-   sudo apt install python3-wxgtk-webview4.0
+KiCad doesn't always pick up a new library at once, and the dialog tells you
+when that's the case:
 
-   # Fedora
-   sudo dnf install python3-wxpython4-webview
+- **Symbols:** if the Schematic Editor was already open, reopen it.
+- **Footprints on KiCad 10 and 11:** the first time a project gets the
+  footprint library, reopen the project (or restart KiCad) before placing
+  them. KiCad 9 picks it up straight away.
+- **Shared library folder:** restart KiCad once after the first import.
 
-   # Arch: python-wxpython bundles WebView; make sure webkit2gtk is installed
-   ```
+### Importing a BOM
 
-4. **Restart KiCad completely**
+1. Click **Import BOM…** in the search dialog and pick the file. A JLCPCB
+   assembly BOM, or any CSV/EasyEDA/KiCad BOM with an LCSC part number column
+   (`LCSC Part #`, `LCSC Part Number`, `LCSC`, …), works as is. `.xlsx` files
+   need the optional `openpyxl` package; otherwise export the BOM as CSV.
+2. Check the list: repeated parts are merged, and rows without an LCSC number
+   are skipped and reported. Untick anything you don't want, and choose
+   symbols, footprints and/or 3D models.
+3. Click **Import**. You can cancel along the way, and a summary lists what
+   was imported and what failed.
 
-5. **Verify installation**
-   - Open KiCad PCB Editor
-   - You should see the LCSC Manager icon in the toolbar
-   - Or go to **Tools → External Plugins → LCSC Manager**
+BOM imports use the same library location and settings as single parts.
 
-## Screenshots
+### Library location and settings
 
-![LCSC Manager Dialog](docs/images/screenshot-main-dialog.png)
+Click **⚙ Settings…** in the search dialog.
 
-*Import components from LCSC/EasyEDA with real-time stock and pricing information*
+**Library location**
 
-## 🚀 Usage
-
-> **Where the plugin lives:** LCSC Manager runs in the **PCB Editor**
-> (pcbnew), not the Schematic Editor. KiCad's Python action-plugin API is
-> only available in the PCB Editor, so **Search and Import** appears there —
-> launch it from the PCB Editor even if you start your design in the
-> schematic. Imported symbols are still added to your project's symbol
-> library and become available in the Schematic Editor.
-
-### Quick Start
-
-1. **Open KiCad PCB Editor** with a saved project
-2. **Launch the plugin**:
-   - Click the LCSC Manager icon in the toolbar, or
-   - Go to **Tools → External Plugins → LCSC Manager**
-
-### Search and Preview Components
-
-3. **Search for components**:
-   - Enter search terms (e.g., "RP2040", "10uF", "0603")
-   - Optionally filter by package type (e.g., "LQFN", "SOT23")
-   - Press **Enter** or click **Search**
-
-4. **Browse results**:
-   - View component list with LCSC ID, name, package, price, stock, and type
-   - Click any column header to sort results
-   - Select a component to view previews
-
-5. **Review previews**:
-   - **Symbol tab**: Symbol preview from EasyEDA
-   - **Footprint tab**: Footprint preview from EasyEDA
-   - Previews load asynchronously - you can browse and import while loading
-
-### Import Components
-
-6. **Select import options**:
-   - ✓ Import Symbol
-   - ✓ Import Footprint
-   - ✓ Import 3D Model
-
-7. **Click "Import Selected"** to add the component to your project
-
-   The dialog stays open after an import, so you can keep searching and adding
-   parts without reopening the plugin — your search results, previews and
-   import options are all still there. A green line above the buttons lists
-   what you've imported so far. Click **Close** when you're done.
-
-8. **Find imported components** in your project libraries (default paths):
-   - Symbol: `<project>/libs/lcsc/symbols/lcsc_imported.kicad_sym`
-   - Footprint: `<project>/libs/lcsc/footprints.pretty/`
-   - 3D Models: `<project>/libs/lcsc/3dmodels/`
-
-### Import a BOM file
-
-Instead of importing parts one at a time, you can import everything referenced
-in a BOM file:
-
-1. Click **Import BOM…** at the bottom of the Search & Import dialog.
-2. Pick a BOM file. A **JLCPCB** assembly BOM (or any CSV/EasyEDA/KiCad BOM
-   with an `LCSC Part #` column) works out of the box — no extra editing needed.
-   `.xlsx` files are supported when the optional `openpyxl` package is installed;
-   otherwise export the BOM as CSV.
-3. Review the detected parts. Rows without an LCSC part number are skipped and
-   reported. Untick any parts you don't want, and choose whether to import
-   symbols / footprints / 3D models.
-4. Click **Import**. Progress is shown per part and can be cancelled; when it
-   finishes you get a summary of what imported and what failed.
-
-Imported parts land in the same project libraries as single-part imports (see
-the paths above), and honor the same **⚙ Settings…** library-path overrides.
-
-### Customizing library paths
-
-Click the **⚙ Settings…** button in the import dialog to choose where LCSC
-components are stored.
-
-#### Library location
-
-- **Inside each project** (default) — every project keeps its own copy under
-  `<project>/libs/lcsc`, referenced as `${KIPRJMOD}/...` and registered in the
-  project's own library tables. Easy to commit along with the project.
-- **One shared folder for all projects** — every import goes to a single folder
-  of your choice, registered in KiCad's **global** library tables, so parts
-  imported from one project are available in all of them. The folder can be a
-  full path (`~/KiCad/lcsc`, `C:\KiCadLibs\lcsc`) or use a KiCad path variable
+- **Inside each project** (default): every project keeps its own copy under
+  `<project>/libs/lcsc`, referenced as `${KIPRJMOD}/...` in the project's own
+  library tables. Easy to commit with the project.
+- **One shared folder for all projects:** every import goes to one folder of
+  your choice, registered in KiCad's **global** library tables, so parts
+  imported in one project are available in all of them. Use a full path
+  (`~/KiCad/lcsc`, `C:\KiCadLibs\lcsc`) or a KiCad path variable
   (`${MY_LIBS}/lcsc`, defined under *Preferences → Configure Paths*). A
-  variable is kept as-is in the library tables and footprints, so they keep
+  variable is kept as is in the library tables and footprints, so they keep
   working if the folder moves or the project is opened on another machine
-  with the variable set.
+  that defines it.
 
-  The shared libraries are registered as `lcsc_shared` (symbols) and
-  `lcsc_shared_footprints` (footprints) — distinct from the per-project
-  `lcsc_imported` / `lcsc_footprints`, so a project that still has its own
-  copies can't shadow them. KiCad reads its global tables at startup, so
-  **restart KiCad** once after the first shared import. Before its first
-  edit, LCSC Manager saves a copy of each global table as
+  The shared libraries are named `lcsc_shared` (symbols) and
+  `lcsc_shared_footprints` (footprints), so a project with its own
+  `lcsc_imported` / `lcsc_footprints` can't shadow them. Before its first
+  change to a global table, LCSC Manager saves a copy as
   `sym-lib-table.lcsc_manager.bak` / `fp-lib-table.lcsc_manager.bak`, and it
   never modifies a library entry it didn't create.
 
-A project can override the location — for example, a team repository that
-commits its own libraries while your personal projects use the shared folder.
-The shared folder itself is always stored in Global, since it is a location
-on your computer.
+A project can override the location. For example, a team repository can
+commit its own libraries while your personal projects use the shared folder.
+The shared folder itself is always a global setting, since it's a location on
+your computer.
 
-#### Layout
+**Layout** (inside-each-project location)
 
-| Field | Default | Purpose |
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| `library_path` | `libs/lcsc` | Root folder relative to the project (inside-each-project location only) |
-| `symbol_lib_name` | `lcsc_imported.kicad_sym` | Symbol library filename |
+| `library_path` | `libs/lcsc` | Root folder, relative to the project |
+| `symbol_lib_name` | `lcsc_imported.kicad_sym` | Symbol library file |
 | `footprint_lib_name` | `footprints.pretty` | Footprint library folder |
 | `model_3d_path` | `3dmodels` | 3D model folder |
 
-#### Where settings are saved
+**Where settings are saved**
 
-- **Global** — `~/.kicad/lcsc_manager/config.json`. The default for every
+- **Global:** `~/.kicad/lcsc_manager/config.json`, the default for every
   project.
-- **This project only** — `<project>/.lcsc_manager.json`. Overrides Global for
-  that project. Commit this file if you want the layout shared with your team,
-  or add it to `.gitignore` if it's personal.
+- **This project only:** `<project>/.lcsc_manager.json`, which overrides
+  Global for that project. Commit it to share the layout with your team, or
+  add it to `.gitignore` if it's personal.
 
-Resolution order is `default < global < project`. A project stores only the
-values that differ from Global, so everything else keeps following Global. The
-Settings dialog opens on whichever scope currently supplies the settings, shows
-a live preview of the resolved paths, and marks where each value comes from.
-Changes apply to *future* imports only — existing libraries are not moved
-automatically.
+Settings resolve as default → global → project; a project stores only the
+values that differ from Global. The Settings dialog shows a live preview of
+the resulting paths and where each value comes from. Changes apply to future
+imports; existing libraries aren't moved.
 
 ### Tips
 
-- **Search by LCSC ID**: Enter part numbers like "C2040" for exact matches
-- **Search by value**: Try "10uF", "100nF", "10k" to find capacitors and resistors
-- **Filter by package**: Add package filter like "0603", "0805", "SOT23" for better results
-- **Browse quickly**: Click through components rapidly - previews load in the background
-- **Check stock**: Basic parts are usually cheaper and more available than Extended parts
+- An LCSC number (`C2040`) finds exactly that part.
+- Values such as `10uF`, `100nF` or `10k` plus a package (`0603`, `0805`)
+  find passives quickly.
+- Basic parts are usually cheaper to assemble at JLCPCB than Extended ones.
 
-## 🗑️ Uninstallation
+## Updating and uninstalling
 
-To remove the plugin from your system:
+Installed through the Plugin and Content Manager, new versions show up there
+as updates. To uninstall, open its **Installed** tab, uninstall
+**LCSC Manager** and click **Apply Pending Changes**. For a manual
+installation, replace or delete the `lcsc_manager` folder.
 
-```bash
-bash uninstall_test.sh
-```
+Your settings and logs are in `~/.kicad/lcsc_manager/`; delete that folder
+too for a clean removal. Imported libraries and `.lcsc_manager.json` files
+stay in your projects.
 
-The script will:
-- Detect and remove the plugin from KiCad plugins directory
-- Optionally remove Python dependencies (if not used by other apps)
-- Optionally remove configuration and logs
+## Requirements
 
-Alternatively, manually remove:
-- Plugin: `~/Documents/KiCad/9.0/3rdparty/plugins/com_github_hulryung_kicad-lcsc-manager/`
-- Config/Logs: `~/.kicad/lcsc_manager/`
+- **KiCad** 9 or 10 (0.x build), or 11, still in development (1.x build,
+  with KiCad's API server turned on). KiCad 7 and 8 aren't supported.
+- **An internet connection**, to search and download parts. The KiCad 11
+  build also needs it the first time, when KiCad installs the plugin's one
+  dependency (`kicad-python`).
+- **Nothing to install with pip:** `requests` and its dependencies ship with
+  the plugin.
+- **Linux, optional:** wxPython's WebView package for previews (see
+  [Installation](#installation)).
 
-## 📋 Requirements
+## FAQ
 
-- **KiCad**: 9.0 or 10.x
-  - May work with KiCad 7.0+ but not officially tested
-  - KiCad 11 (in development) uses the 1.x IPC build, which needs KiCad's
-    API server turned on (**Preferences → Plugins**)
-- **Python**: 3.9+ (bundled with KiCad)
-- **Python packages**: none to install — `requests` and its dependencies are
-  bundled with the plugin (`lcsc_manager/lib/`)
-- **Linux only**: the wxPython **WebView** backend for component previews
-  (Debian/Ubuntu: `python3-wxgtk-webview4.0`, Fedora:
-  `python3-wxpython4-webview`). Optional — without it the search dialog works
-  but previews show a placeholder.
-- **Internet connection**: Required for downloading components from LCSC/JLCPCB
+### Why isn't it in KiCad's official repository?
+
+KiCad's [commercial services policy](https://dev-docs.kicad.org/en/addons/index.html#_commercial_services)
+requires a formal contract between the service provider and the KiCad team
+for add-ons that integrate directly with a commercial API such as
+LCSC/JLCPCB. That's not something a third-party developer can arrange, so the
+plugin is distributed through its own repository instead.
+
+### Why does it only show up in the PCB Editor?
+
+On KiCad 9 and 10 Python plugins only run in the PCB Editor. The KiCad 11
+build can also be started from the Schematic Editor.
+
+### I imported a footprint, but KiCad can't find it
+
+On KiCad 10 and 11 a running session doesn't reload the project's footprint
+library table, so a library added during the session appears only after the
+project is reopened. The dialog says so when this applies. See
+[Searching and importing](#searching-and-importing).
+
+### The previews don't show
+
+Previews come from EasyEDA, so check your internet connection; some parts
+have no preview data there. On Linux, install the WebView package (see
+[Installation](#installation)) and restart KiCad.
+
+### The dialog only has an "LCSC Part Number" field
+
+That's the basic fallback dialog, used when the full search dialog can't
+load. A message explains why, usually a missing Python package, and how to
+fix it. The log has the details.
+
+### Where is the log?
+
+`~/.kicad/lcsc_manager/logs/lcsc_manager.log`. Please attach it when you
+[open an issue](https://github.com/hulryung/kicad-lcsc-manager/issues).
 
 ## Development
 
-### Setup Development Environment
-
-```bash
-# Clone the repository
-git clone https://github.com/hulryung/kicad-lcsc-manager.git
-cd kicad-lcsc-manager
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run tests
-python -m pytest tests/
-```
-
-### Project Structure
-
 ```
 kicad-lcsc-manager/
-├── plugins/lcsc_manager/    # Main plugin code
-│   ├── api/                 # LCSC/EasyEDA API client
-│   ├── converters/          # Symbol, footprint, 3D model converters
-│   ├── library/             # KiCad library management
-│   ├── preview/             # Preview rendering
-│   └── utils/               # Config, logging utilities
-├── scripts/                 # Build and packaging scripts
-├── tests/                   # Integration tests
-├── .github/workflows/       # CI/CD (auto-release on tag)
-└── README.md
+├── plugins/lcsc_manager/   the plugin package that gets installed
+│   ├── plugin.py           entry point for KiCad 9/10 (SWIG action plugin)
+│   ├── ipc_main.py         entry point for KiCad 11 (IPC API plugin)
+│   ├── launcher.py         opens the dialogs for both
+│   ├── dialog*.py          search, basic, settings and BOM dialogs
+│   ├── api/                LCSC/EasyEDA and JLCPCB clients
+│   ├── converters/         symbol, footprint and 3D model conversion
+│   ├── library/            library files and KiCad library tables
+│   ├── bom/                BOM parsing and batch import
+│   ├── utils/              settings, KiCad host detection, logging
+│   ├── vendor/             vendored easyeda2kicad.py (footprint conversion)
+│   └── lib/                bundled dependencies (not in git)
+├── ipc/                    plugin.json and requirements.txt for the KiCad 11 build
+├── scripts/                dependency bundling, packaging and release scripts
+├── tests/                  tests
+└── docs/                   packaging and debugging notes
 ```
 
-## Related Projects
+- `./scripts/bundle-dependencies.sh` fills `plugins/lcsc_manager/lib/`, which
+  the plugin needs to run.
+- Tests are plain scripts: `python3 tests/test_<name>.py`. [TESTING.md](TESTING.md)
+  covers the headless checks against KiCad and how to try the KiCad 11 build.
+- A `vX.Y.Z` tag releases both builds; see [docs/PACKAGING.md](docs/PACKAGING.md).
+  `./scripts/package.sh X.Y.Z` builds the same packages locally.
 
-Check out my other KiCad and LCSC-related tools:
+Contributions are welcome; please open an issue or a pull request.
 
-### 🌐 [EasyEDA2KiCad Web](https://github.com/hulryung/easyeda2kicad-web)
-A web-based tool to convert EasyEDA/LCSC components to KiCad format with real-time 2D and 3D visualization. Perfect for previewing components before importing them into your project.
+## Related projects
 
-**Features:**
-- Web-based interface (no installation required)
-- Real-time 2D footprint preview
-- 3D model visualization
-- Instant conversion and download
-
-### 📋 [BOM Extender](https://github.com/hulryung/bom-extender)
-BOM (Bill of Materials) extension tool that automatically fetches LCSC component information and exports enhanced BOMs.
-
-**Features:**
-- Automatic LCSC component lookup
-- Stock and pricing information
-- Export to various formats
-- Batch processing support
-
----
+- [EasyEDA2KiCad Web](https://github.com/hulryung/easyeda2kicad-web): convert
+  EasyEDA/LCSC parts to KiCad in the browser, with 2D and 3D previews.
+- [BOM Extender](https://github.com/hulryung/bom-extender): add LCSC stock
+  and pricing to a BOM and export it.
 
 ## Credits
 
-### Code ported from easyeda2kicad.py v1.0.1
-
-Starting with **v0.3.0**, this plugin incorporates conversion logic **directly ported** from the upstream project **[easyeda2kicad.py v1.0.1](https://github.com/uPesy/easyeda2kicad.py)** by [uPesy](https://github.com/uPesy) (AGPL-3.0). Every ported function carries a `"Ported from easyeda2kicad.py v1.0.1 <module>"` docstring for full traceability.
-
-**What was ported:**
-
-| Upstream source | Ported into |
-|---|---|
-| `kicad/export_kicad_3d_model.py` — `_get_obj_bbox`, `get_materials`, `get_vertices`, `generate_wrl_model` | `plugins/lcsc_manager/converters/model_3d_converter.py` — 3D model centering, Z bottom alignment, Rec.601 luminance, EE placement offset |
-| `easyeda/easyeda_importer.py` — `Easyeda3dModelImporter.parse_3d_model_info` | `model_3d_converter.py::_extract_3d_model_info` — extracts `uuid`, `c_origin`, `z`, `c_rotation` from SVGNODE |
-| `kicad/parameters_kicad_footprint.py` — `KI_LAYERS` table | `converters/jlc2kicad/footprint_handlers.py::layer_correspondance` — correct mapping for all 17 EasyEDA layers |
-| `kicad/export_kicad_footprint.py` — `_SOLID_REGION_LAYERS`, `_parse_solid_region_path` | `footprint_handlers.py::_SOLID_REGION_LAYERS` filter + `h_SOLIDREGION` M/L/H/V/A/Z parser |
-| `kicad/export_kicad_footprint.py` — pad number normalization | `footprint_handlers.py::_normalize_pad_number` |
-| `kicad/parameters_kicad_footprint.py` — `KI_VIA` template | `footprint_handlers.py::h_VIA` — plated THT emission |
-| `easyeda/easyeda_importer.py` — `add_easyeda_pin` | `converters/jlc2kicad/symbol_handlers.py::_extract_pin_number` — canonical multi-unit pin number |
-| `easyeda/easyeda_api.py` — `_create_ssl_context` | `api/lcsc_api.py::_discover_ca_bundle` — macOS KiCad certifi fallback |
-| `easyeda/easyeda_api.py` — `_get_cache_path`/`_read_from_cache`/`_write_to_cache` | `api/lcsc_api.py::_cache_path/_cache_read/_cache_write` — opt-in disk cache |
-
-### Other related projects
-
-This plugin was originally structured using concepts and base handler code from:
-- [JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib) — base jlc2kicad handler structure (MIT)
-- [easyeda2kicad_plugin](https://github.com/rasmushauschild/easyeda2kicad_plugin) — KiCad plugin wrapper
-- [KiCAD-EasyEDA-Parts](https://github.com/Yanndroid/KiCAD-EasyEDA-Parts) — alternative implementation
+- [easyeda2kicad.py](https://github.com/uPesy/easyeda2kicad.py) by uPesy
+  (AGPL-3.0). Footprint conversion uses a vendored copy of v1.0.1
+  (`plugins/lcsc_manager/vendor/easyeda2kicad/`). The 3D model conversion
+  (WRL generation, materials, vertices, centering), multi-unit symbol pin
+  numbering and the macOS certificate fallback are ported from it, each
+  marked in its docstring.
+- [JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib) (MIT): the
+  symbol handlers started from its code.
+- [easyeda2kicad_plugin](https://github.com/rasmushauschild/easyeda2kicad_plugin)
+  and [KiCAD-EasyEDA-Parts](https://github.com/Yanndroid/KiCAD-EasyEDA-Parts):
+  earlier plugins that shaped this one.
 
 ## License
 
-MIT License — see `LICENSE` file for the plugin wrapper code.
-
-**License note:** Portions of the conversion logic are ported from [easyeda2kicad.py](https://github.com/uPesy/easyeda2kicad.py), which is licensed under **AGPL-3.0**. Each ported function is marked with a docstring attribution. Users redistributing this plugin should review both the MIT license of the plugin wrapper and the AGPL-3.0 license of the upstream easyeda2kicad.py project.
-
-## ❓ FAQ
-
-### Why isn't this available in the official KiCad PCM?
-
-According to [KiCad's commercial services policy](https://dev-docs.kicad.org/en/addons/index.html#_commercial_services), plugins that directly integrate with commercial APIs (like LCSC/JLCPCB) require a formal contract between the service provider and the KiCad team. As a third-party developer, I cannot submit to the official PCM without such a contract.
-
-However, you can still easily install this plugin via:
-- **Custom repository** in KiCad PCM (recommended)
-- **Manual installation** from GitHub releases
-
-### How do I update the plugin?
-
-**If installed via custom repository:**
-- The plugin will show update notifications in KiCad PCM
-- Click "Update" when a new version is available
-
-**If installed manually:**
-- Check the [Releases page](https://github.com/hulryung/kicad-lcsc-manager/releases) for new versions
-- Download and extract the new version to the same location
-- Restart KiCad
-
-### Does this work with KiCad 7 or 8?
-
-This plugin is primarily developed and tested with KiCad 9.0. It may work with KiCad 7.0+ but is not officially tested or supported.
-
-### The previews are not showing. What should I do?
-
-Previews are fetched directly from EasyEDA's SVG API and displayed in a WebView. Make sure you have an internet connection. If a component has no preview data on EasyEDA, a placeholder message will be shown.
-
-On **Linux**, if the preview tabs say the WebView backend is missing, install
-your distro's wxPython WebView package and restart KiCad — Debian/Ubuntu:
-`sudo apt install python3-wxgtk-webview4.0`, Fedora:
-`sudo dnf install python3-wxpython4-webview` (see issues #6 and #14).
-
-### The search dialog only has an "LCSC Part Number" field (no keyword search)?
-
-You're seeing the basic fallback dialog: the full search dialog failed to
-load. In current versions a popup explains exactly why (typically a missing
-Python package) and how to fix it. On Linux the usual cause used to be the
-missing WebView package above — in current versions that no longer disables
-the full dialog, only the previews.
-
-### Can I search for components without LCSC part numbers?
-
-Yes! You can search by:
-- Component name (e.g., "RP2040", "ATmega328")
-- Component value (e.g., "10uF", "100k")
-- Package type (e.g., "0603", "SOT23", "LQFN")
-- Or any combination of these
-
-### Are 3D models included?
-
-Yes, both WRL (VRML) and STEP formats are downloaded when available. They are automatically linked to the footprint.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 💬 Support
-
-If you encounter any issues or have questions, please [open an issue](https://github.com/hulryung/kicad-lcsc-manager/issues) on GitHub.
+The plugin is MIT-licensed ([LICENSE](LICENSE)). Its footprint conversion
+is a vendored copy of easyeda2kicad.py, which stays under AGPL-3.0, and parts
+of the other conversion code are ported from it (each marked in its
+docstring). If you redistribute the plugin, review both licenses; see
+[NOTICE.md](NOTICE.md).
