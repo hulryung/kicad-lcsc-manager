@@ -246,6 +246,7 @@ fix it. The log has the details.
 
 `~/.kicad/lcsc_manager/logs/lcsc_manager.log`. Please attach it when you
 [open an issue](https://github.com/hulryung/kicad-lcsc-manager/issues).
+[docs/DEBUG.md](docs/DEBUG.md) has more ways to track a problem down.
 
 ## Development
 

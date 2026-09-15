@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - It covers the KiCad 11 build.
   - Installing from a git clone now runs `scripts/bundle-dependencies.sh` first. `lib/` isn't in git, so that install relied on KiCad's Python happening to include `requests`.
   - Its link to the README's usage section is fixed.
+- **One debugging guide instead of two outdated ones.** `docs/DEBUG.md` now covers:
+  - the log and what to attach to an issue;
+  - finding out why the plugin doesn't appear, via KiCad's *Show Plugin Errors* for the 0.x build, and the API server, the plugin's Python environment and the editor's warning messages for the KiCad 11 build;
+  - the online services the plugin calls, plus a one-line check of a part from a terminal;
+  - imported parts that don't show up;
+  - running KiCad from a checkout.
+
+  Each snippet was run before it went in. The old guides used KiCad 9 folders (one of them wrong on macOS), a `pydantic` check, "placeholder converters" and scripts that are now gone.
+- **TESTING.md** keeps its automated and headless sections. The rest was about KiCad 8 folders, `pip install requests pydantic`, and the old dialog; C2040 was even called "a common capacitor", though it's the RP2040. It's replaced by a short checklist for trying a build in KiCad, with part numbers checked against the API.
 
 ### Fixed
 - **NOTICE.md listed JLC2KiCad_lib as AGPL-3.0.** It's MIT, as it has been since its first commit in 2021. The symbol handlers adapted from it now carry its copyright and permission notice in `converters/jlc2kicad/LICENSE`, so it ships with every package, as the MIT License requires.
@@ -28,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `plugins/lcsc_manager/preview/`: Pillow-based preview renderers that nothing imports. The dialogs draw EasyEDA's own SVG previews.
 - `requirements.txt`: it listed `pydantic` and `cairosvg`, which nothing uses, and `Pillow`, which only the removed renderers used. `requests` ships with the plugin (`scripts/bundle-dependencies.sh`), and the KiCad 11 build's one dependency is in `ipc/requirements.txt`.
 - `uninstall_test.sh`: it only looked in KiCad 6–9's `scripting/plugins` folders, so it couldn't find a Plugin and Content Manager install or anything on KiCad 10. Uninstalling is covered in the README.
+- **The rest of the January-era scripts and notes.** The repository root is now the living docs, the PCM metadata and `resources.zip` (the icon `repository.json` points to). Git history keeps the removed files.
+  - Diagnostic and setup scripts that assumed KiCad 6–9 folder layouts: `check_install.py`, `check_plugin.py`, `kicad_diagnose.py`, `verify_plugin.py`, `test_plugin.py`, `kicad_python.sh`, `debug_realtime.sh`, `clean_install.sh`, `scripts/check-plugin-cli.py`, plus `install_test.sh`, which pip-installed `pydantic`, `KicadModTree`, `Pillow` and `cairosvg`, none of which the plugin uses any more.
+  - `create_release.sh` (a v0.1.0 packager, replaced by `scripts/build-packages.py`) and `setup.py` (version 0.1.0, with a console entry point to a `cli.py` that doesn't exist).
+  - Development notes from the first weeks: `PROJECT_SUMMARY.md`, `IMPLEMENTATION_PLAN.md`, `API_FIX_SUMMARY.md`, `JLCPCB_INTEGRATION.md`, `PCM_SETUP_COMPLETE.md` and `DISTRIBUTION.md` (replaced by `docs/PACKAGING.md`).
+  - `DEBUGGING.md`, merged into the rewritten `docs/DEBUG.md` below.
 
 ## [0.9.0] - 2026-09-15
 
