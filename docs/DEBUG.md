@@ -1,407 +1,136 @@
-# KiCad Plugin Debugging Guide
+# Debugging LCSC Manager
 
-This guide helps you debug and troubleshoot KiCad plugin installation issues.
+## The log
 
-## Method 1: KiCad Python Scripting Console
+Everything the plugin does is logged to
 
-### Open Python Console
-
-1. Open KiCad PCB Editor
-2. Go to **Tools → Scripting Console**
-3. A Python console window will appear
-
-### Check Installed Plugins
-
-In the scripting console, run:
-
-```python
-import pcbnew
-
-# Get all registered action plugins
-plugins = pcbnew.GetActionPlugins()
-
-print(f"Total plugins registered: {len(plugins)}")
-print("\nRegistered plugins:")
-for plugin in plugins:
-    print(f"  - {plugin.GetName()} (Category: {plugin.GetCategoryName()})")
-    print(f"    Show toolbar: {plugin.GetShowToolbarButton()}")
-    print(f"    Icon: {plugin.GetIconFileName()}")
-    print()
+```
+~/.kicad/lcsc_manager/logs/lcsc_manager.log
 ```
 
-### Check LCSC Manager Specifically
+on every platform (`~` is your home folder). Watch it while you use the
+plugin with `tail -f ~/.kicad/lcsc_manager/logs/lcsc_manager.log`. The KiCad 11
+build also sends its console output there, because KiCad would otherwise show
+it as an error.
 
-```python
-import pcbnew
+Settings live next to it in `~/.kicad/lcsc_manager/config.json`, and in
+`<project>/.lcsc_manager.json` for a project that overrides them.
 
-plugins = pcbnew.GetActionPlugins()
-lcsc_plugin = None
+When you [open an issue](https://github.com/hulryung/kicad-lcsc-manager/issues),
+please include:
+- the relevant part of the log
+- your KiCad version (**Help → About KiCad**) and operating system
+- the plugin version (0.x or 1.x)
+- what you did
 
-for plugin in plugins:
-    if "LCSC" in plugin.GetName():
-        lcsc_plugin = plugin
-        break
+## The plugin doesn't appear
 
-if lcsc_plugin:
-    print("✓ LCSC Manager is registered!")
-    print(f"  Name: {lcsc_plugin.GetName()}")
-    print(f"  Description: {lcsc_plugin.GetDescription()}")
-    print(f"  Category: {lcsc_plugin.GetCategoryName()}")
-    print(f"  Show Toolbar: {lcsc_plugin.GetShowToolbarButton()}")
-    print(f"  Icon File: {lcsc_plugin.GetIconFileName()}")
-else:
-    print("✗ LCSC Manager is NOT registered")
-    print("\nAll registered plugins:")
-    for p in plugins:
-        print(f"  - {p.GetName()}")
-```
+### KiCad 9 and 10 (0.x build)
 
-### Check Plugin Import
+- It only appears in the **PCB Editor**: a toolbar button, and
+  **Tools → External Plugins → LCSC Manager**.
+- **Tools → External Plugins → Refresh Plugins** reloads plugins without
+  restarting KiCad.
+- If KiCad couldn't load the plugin, it keeps the Python traceback. Open
+  **Preferences → Preferences… → PCB Editor → Action Plugins** and click
+  **Show Plugin Errors**.
+- **Tools → External Plugins → Reveal Plugin Folder** (**Open Plugin
+  Directory** on Windows/Linux) shows where plugins are loaded from. A
+  Plugin and Content Manager install is in
+  `3rdparty/plugins/com_github_hulryung_kicad-lcsc-manager/`. A manual one
+  must be a folder named `lcsc_manager` with `__init__.py` directly inside it
+  (see [INSTALL.md](../INSTALL.md#troubleshooting)).
 
-Test if the plugin can be imported:
+### KiCad 11 (1.x build)
 
-```python
-import sys
-import os
+- KiCad only runs IPC plugins with the API server on: **Preferences →
+  Plugins → Enable KiCad API**. The button appears in both the PCB and the
+  Schematic Editor.
+- KiCad gives the plugin its own Python environment and installs
+  `kicad-python` into it from the internet each time it loads the plugin. The
+  environment lives in KiCad's cache folder, under
+  `python-environments/com.github.hulryung.kicad-lcsc-manager`:
+  `~/Library/Caches/kicad/<version>/` on macOS, `~/.cache/kicad/<version>/`
+  on Linux. If that install failed (for example, offline), restart KiCad to
+  retry.
+- KiCad reports a plugin that fails to start (a non-zero exit code or
+  output on its error stream) in the editor's warning messages, at the right
+  of the status bar.
+- You can start the entry point by hand against a running KiCad, as KiCad
+  does, and watch the log. Use the environment's Python, from the plugin
+  folder:
 
-# Check if plugin directory is in Python path
-plugin_paths = [p for p in sys.path if 'lcsc_manager' in p.lower()]
-print(f"LCSC Manager paths in sys.path: {plugin_paths}")
+  ```bash
+  cd <plugin folder>      # the folder that holds plugin.json
+  <environment>/bin/python3 ipc_main.py
+  ```
 
-# Try to import the plugin
-try:
-    import lcsc_manager
-    print(f"✓ lcsc_manager module imported successfully")
-    print(f"  Version: {lcsc_manager.__version__}")
-    print(f"  Location: {lcsc_manager.__file__}")
-except ImportError as e:
-    print(f"✗ Failed to import lcsc_manager: {e}")
+  Without `KICAD_API_SOCKET`, kicad-python connects to KiCad's default socket
+  (`/tmp/kicad/api.sock` on macOS and Linux). To run it with no KiCad at all,
+  see [TESTING.md](../TESTING.md#the-ipc-plugin-kicad-11-port-19).
 
-# Try to import the plugin class
-try:
-    from lcsc_manager.plugin import LCSCManagerPlugin
-    print(f"✓ LCSCManagerPlugin class imported successfully")
+## Searches or imports fail
 
-    # Try to create an instance
-    plugin = LCSCManagerPlugin()
-    print(f"✓ LCSCManagerPlugin instance created")
-    print(f"  Name: {plugin.name}")
-    print(f"  Description: {plugin.description}")
-except Exception as e:
-    print(f"✗ Failed to import/create LCSCManagerPlugin: {e}")
-    import traceback
-    traceback.print_exc()
-```
+The plugin talks to these services:
 
-## Method 2: Check Plugin Directory
+| What | Where |
+| --- | --- |
+| Search results, stock and prices | `jlcpcb.com` (JLCPCB's parts search) |
+| Symbol and footprint data, previews | `easyeda.com/api/products/<LCSC number>/…` |
+| 3D models (STEP and WRL) | `modules.easyeda.com` |
 
-### Find Plugin Installation Location
+The log records every request and any error. Some parts exist in the LCSC
+catalog but have no symbol or footprint in EasyEDA's library; the plugin
+says so, and there's nothing to import for those.
 
-```python
-import pcbnew
-import os
-
-# Get KiCad configuration paths
-config_path = pcbnew.GetSettingsManager().GetUserSettingsPath()
-print(f"KiCad config path: {config_path}")
-
-# Common plugin locations
-plugin_dirs = [
-    os.path.expanduser("~/Documents/KiCad/9.0/scripting/plugins"),
-    os.path.expanduser("~/Library/Application Support/kicad/9.0/3rdparty/plugins"),
-    os.path.join(config_path, "scripting/plugins"),
-    os.path.join(config_path, "3rdparty/plugins"),
-]
-
-print("\nChecking plugin directories:")
-for pdir in plugin_dirs:
-    exists = os.path.exists(pdir)
-    print(f"  [{('✓' if exists else '✗')}] {pdir}")
-    if exists:
-        try:
-            contents = os.listdir(pdir)
-            if contents:
-                print(f"      Contents: {contents}")
-        except:
-            pass
-```
-
-### Verify LCSC Manager Installation
-
-```python
-import os
-
-# Check both possible locations
-locations = [
-    os.path.expanduser("~/Documents/KiCad/9.0/scripting/plugins/lcsc_manager"),
-    os.path.expanduser("~/Library/Application Support/kicad/9.0/3rdparty/plugins/com.github.hulryung.kicad-lcsc-manager"),
-]
-
-for loc in locations:
-    print(f"\nChecking: {loc}")
-    if os.path.exists(loc):
-        print(f"  ✓ Directory exists")
-
-        # Check for key files
-        key_files = ['__init__.py', 'plugin.py', 'resources/icon.png']
-        for f in key_files:
-            fpath = os.path.join(loc, f)
-            exists = os.path.exists(fpath)
-            print(f"  [{('✓' if exists else '✗')}] {f}")
-    else:
-        print(f"  ✗ Directory does not exist")
-```
-
-## Method 3: Check KiCad Logs
-
-### macOS Log Location
+To check a part without KiCad, from a checkout (after
+`./scripts/bundle-dependencies.sh`):
 
 ```bash
-# In Terminal
-tail -f ~/Library/Logs/kicad/kicad.log
-
-# Or view recent errors
-grep -i "lcsc\|plugin\|error" ~/Library/Logs/kicad/kicad.log | tail -50
+python3 -c "
+import sys; sys.path.insert(0, 'plugins')
+from lcsc_manager.api.lcsc_api import get_api_client
+part = get_api_client().search_component('C2040')
+print('EasyEDA data:', bool(part and part.get('easyeda_data')))"
 ```
 
-### Check Console Output
+Behind a proxy, set `HTTPS_PROXY` (and `HTTP_PROXY`) in the environment KiCad
+starts from; the plugin's HTTP library picks them up.
 
-```bash
-# Run KiCad from terminal to see console output
-/Applications/KiCad/KiCad.app/Contents/MacOS/kicad
+## Imported parts don't show up
 
-# Or for PCB Editor directly
-/Applications/KiCad/KiCad.app/Contents/MacOS/pcbnew
-```
+KiCad doesn't always pick up a new library at once. The dialog tells you when
+it hasn't:
 
-## Method 4: Manual Plugin Test
+- **Symbols:** reopen the Schematic Editor.
+- **Footprints (KiCad 10 and 11):** reopen the project the first time it gets
+  the footprint library.
+- **Shared library folder:** restart KiCad after the first import.
 
-Create a test script to manually register the plugin:
+The libraries are registered under these names:
+- Inside a project: `lcsc_imported` (symbols) and `lcsc_footprints`
+  (footprints) in the project's `sym-lib-table` and `fp-lib-table`.
+- In the shared folder: `lcsc_shared` and `lcsc_shared_footprints` in
+  KiCad's global tables (**Preferences → Manage Symbol/Footprint Libraries**).
 
-```python
-import pcbnew
-import sys
-import os
+If a row is missing or points somewhere unexpected, the log shows which
+tables the plugin updated.
 
-# Add plugin path if needed
-plugin_path = os.path.expanduser("~/Documents/KiCad/9.0/scripting/plugins")
-if plugin_path not in sys.path:
-    sys.path.insert(0, plugin_path)
+## Working on the plugin
 
-print(f"Python path: {sys.path[:3]}...")
+- Run KiCad from your checkout: after `./scripts/bundle-dependencies.sh`,
+  link `plugins/lcsc_manager` into the plugins folder as `lcsc_manager`, for
+  example:
 
-try:
-    # Import and register plugin manually
-    from lcsc_manager.plugin import LCSCManagerPlugin
+  ```bash
+  ln -s "$PWD/plugins/lcsc_manager" ~/Documents/KiCad/10.0/3rdparty/plugins/lcsc_manager
+  ```
 
-    plugin = LCSCManagerPlugin()
-    print(f"Created plugin instance: {plugin.name}")
-
-    # Register it
-    plugin.register()
-    print("✓ Plugin registered successfully")
-
-    # Verify registration
-    plugins = pcbnew.GetActionPlugins()
-    for p in plugins:
-        if "LCSC" in p.GetName():
-            print(f"✓ Found in registered plugins: {p.GetName()}")
-            break
-    else:
-        print("✗ Not found in registered plugins after manual registration")
-
-except Exception as e:
-    print(f"✗ Error: {e}")
-    import traceback
-    traceback.print_exc()
-```
-
-## Method 5: Check PCM Installation Status
-
-### Via Scripting Console
-
-```python
-import pcbnew
-import os
-import json
-
-# PCM plugin installation directory (KiCad 9.0)
-pcm_plugin_dir = os.path.expanduser("~/Library/Application Support/kicad/9.0/3rdparty/plugins")
-
-print(f"PCM Plugin directory: {pcm_plugin_dir}")
-print(f"Exists: {os.path.exists(pcm_plugin_dir)}")
-
-if os.path.exists(pcm_plugin_dir):
-    plugins = os.listdir(pcm_plugin_dir)
-    print(f"\nInstalled PCM plugins ({len(plugins)}):")
-    for p in plugins:
-        pdir = os.path.join(pcm_plugin_dir, p)
-        if os.path.isdir(pdir):
-            # Check for metadata
-            metadata_file = os.path.join(pdir, "metadata.json")
-            if os.path.exists(metadata_file):
-                with open(metadata_file) as f:
-                    metadata = json.load(f)
-                    print(f"  - {metadata.get('name', p)} ({p})")
-            else:
-                print(f"  - {p} (no metadata)")
-
-            # Check for plugins subdirectory
-            plugins_subdir = os.path.join(pdir, "plugins")
-            if os.path.exists(plugins_subdir):
-                print(f"    plugins/: {os.listdir(plugins_subdir)}")
-```
-
-## Common Issues and Solutions
-
-### Issue 1: Plugin Not Registered
-
-**Symptoms**: Plugin doesn't appear in Tools menu or toolbar
-
-**Debug**:
-```python
-import pcbnew
-plugins = pcbnew.GetActionPlugins()
-print([p.GetName() for p in plugins])
-```
-
-**Solutions**:
-- Check if `__init__.py` has `if __name__ != "__main__"` guard
-- Verify plugin imports without errors
-- Check icon file exists at correct path
-
-### Issue 2: Icon Not Showing
-
-**Symptoms**: Plugin appears in menu but no toolbar icon
-
-**Debug**:
-```python
-import pcbnew
-for p in pcbnew.GetActionPlugins():
-    if "LCSC" in p.GetName():
-        print(f"Icon file: {p.GetIconFileName()}")
-        print(f"Icon exists: {os.path.exists(p.GetIconFileName())}")
-```
-
-**Solutions**:
-- Verify icon exists at `plugins/lcsc_manager/resources/icon.png`
-- Check icon file permissions
-- Ensure `show_toolbar_button = True` in plugin code
-
-### Issue 3: Import Errors
-
-**Symptoms**: Errors in KiCad log about missing modules
-
-**Debug**:
-```python
-import sys
-try:
-    import lcsc_manager
-except ImportError as e:
-    print(f"Import error: {e}")
-    print(f"sys.path: {sys.path}")
-```
-
-**Solutions**:
-- Install missing Python dependencies
-- Check Python version compatibility
-- Verify all plugin files are present
-
-### Issue 4: Wrong Installation Directory
-
-**Symptoms**: Files copied but plugin not loading
-
-**Debug**: Check all possible plugin locations
-
-**Solutions**:
-- For PCM installs: Should be in `~/Library/Application Support/kicad/9.0/3rdparty/plugins/`
-- For manual installs: Should be in `~/Documents/KiCad/9.0/scripting/plugins/`
-- Package should extract to create `plugins/lcsc_manager/` subdirectory
-
-## Quick Diagnostic Script
-
-Save this as `check_lcsc_plugin.py` and run in KiCad scripting console:
-
-```python
-#!/usr/bin/env python3
-"""Quick diagnostic for LCSC Manager plugin"""
-
-import pcbnew
-import sys
-import os
-
-print("=" * 60)
-print("LCSC Manager Plugin Diagnostic")
-print("=" * 60)
-
-# 1. Check registered plugins
-print("\n1. Checking registered plugins...")
-plugins = pcbnew.GetActionPlugins()
-print(f"   Total plugins: {len(plugins)}")
-
-lcsc_found = False
-for p in plugins:
-    if "LCSC" in p.GetName():
-        lcsc_found = True
-        print(f"   ✓ LCSC Manager IS registered")
-        print(f"     Name: {p.GetName()}")
-        print(f"     Category: {p.GetCategoryName()}")
-        print(f"     Toolbar: {p.GetShowToolbarButton()}")
-        print(f"     Icon: {p.GetIconFileName()}")
-        if p.GetIconFileName():
-            print(f"     Icon exists: {os.path.exists(p.GetIconFileName())}")
-        break
-
-if not lcsc_found:
-    print(f"   ✗ LCSC Manager NOT registered")
-    print(f"   Registered plugins:")
-    for p in plugins:
-        print(f"     - {p.GetName()}")
-
-# 2. Check import
-print("\n2. Checking module import...")
-try:
-    import lcsc_manager
-    print(f"   ✓ Module imported")
-    print(f"     Version: {lcsc_manager.__version__}")
-    print(f"     Location: {lcsc_manager.__file__}")
-except ImportError as e:
-    print(f"   ✗ Import failed: {e}")
-
-# 3. Check plugin directories
-print("\n3. Checking plugin directories...")
-dirs = [
-    "~/Documents/KiCad/9.0/scripting/plugins",
-    "~/Library/Application Support/kicad/9.0/3rdparty/plugins",
-]
-
-for d in dirs:
-    path = os.path.expanduser(d)
-    exists = os.path.exists(path)
-    print(f"   [{('✓' if exists else '✗')}] {d}")
-    if exists:
-        lcsc_dir = os.path.join(path, "lcsc_manager")
-        if os.path.exists(lcsc_dir):
-            print(f"       ✓ lcsc_manager/ found")
-
-        # Check for PCM package
-        pcm_dir = os.path.join(path, "com.github.hulryung.kicad-lcsc-manager")
-        if os.path.exists(pcm_dir):
-            print(f"       ✓ PCM package found")
-            plugins_dir = os.path.join(pcm_dir, "plugins")
-            if os.path.exists(plugins_dir):
-                print(f"         Contents: {os.listdir(plugins_dir)}")
-
-print("\n" + "=" * 60)
-print("Diagnostic complete")
-print("=" * 60)
-```
-
-## Next Steps
-
-Based on diagnostic results:
-
-1. **If plugin is registered but no icon**: Check icon file path and permissions
-2. **If plugin not registered**: Check import errors and `__init__.py`
-3. **If import fails**: Check installation directory and file structure
-4. **If nothing works**: Try manual installation in `~/Documents/KiCad/9.0/scripting/plugins/`
+  Then use **Refresh Plugins**, or restart KiCad, after a change. Remove any
+  Plugin and Content Manager install first, or KiCad loads both.
+- For the KiCad 11 build, assemble a plugin folder with
+  `python3 scripts/assemble-ipc-plugin.py <dest>`; see [ipc/README.md](../ipc/README.md).
+- Log through `get_logger()` (`utils/logger.py`). Debug-level messages go to
+  the log file only.
+- [TESTING.md](../TESTING.md) covers the automated tests and the headless
+  checks against KiCad's own Python and `kicad-cli`.

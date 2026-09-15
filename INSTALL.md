@@ -199,7 +199,10 @@ The plugin creates logs at:
 ~/.kicad/lcsc_manager/logs/lcsc_manager.log
 ```
 
-Check this file for detailed error messages.
+Check this file for detailed error messages. [docs/DEBUG.md](docs/DEBUG.md)
+covers more: KiCad's own plugin error report, the KiCad 11 build's Python
+environment, the online services the plugin uses, and imported parts that
+don't show up.
 
 ## Uninstallation
 
