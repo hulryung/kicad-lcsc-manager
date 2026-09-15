@@ -119,7 +119,6 @@ manual install doesn't need them.
     ├── bom/
     ├── converters/
     ├── library/
-    ├── preview/
     ├── utils/
     ├── vendor/
     ├── plugin_resources/

@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Installing from a git clone now runs `scripts/bundle-dependencies.sh` first. `lib/` isn't in git, so that install relied on KiCad's Python happening to include `requests`.
   - Its link to the README's usage section is fixed.
 
+### Fixed
+- **NOTICE.md listed JLC2KiCad_lib as AGPL-3.0.** It's MIT, as it has been since its first commit in 2021. The symbol handlers adapted from it now carry its copyright and permission notice in `converters/jlc2kicad/LICENSE`, so it ships with every package, as the MIT License requires.
+
+### Removed
+- `plugins/lcsc_manager/preview/`: Pillow-based preview renderers that nothing imports. The dialogs draw EasyEDA's own SVG previews.
+- `requirements.txt`: it listed `pydantic` and `cairosvg`, which nothing uses, and `Pillow`, which only the removed renderers used. `requests` ships with the plugin (`scripts/bundle-dependencies.sh`), and the KiCad 11 build's one dependency is in `ipc/requirements.txt`.
+- `uninstall_test.sh`: it only looked in KiCad 6–9's `scripting/plugins` folders, so it couldn't find a Plugin and Content Manager install or anything on KiCad 10. Uninstalling is covered in the README.
+
 ## [0.9.0] - 2026-09-15
 
 Published as **0.9.0** (SWIG build, KiCad 9 and 10) and **1.9.0** (IPC build, KiCad 11 and its 10.99 nightlies); see *Two builds per release* below.
