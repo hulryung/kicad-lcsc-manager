@@ -24,11 +24,17 @@ one-click install and update notifications.
 5. Select **LCSC Manager**, click **Install**, then **Apply Pending Changes**
 6. Restart KiCad completely
 
-Works on KiCad 9.0 and 10.0. The package declares `kicad_version: "9.0"`, which
-in the PCM schema is the *minimum* supported version, not a cap — newer KiCad
-releases are not excluded by it.
+Every release comes in two builds, and the repository offers the one that fits
+your KiCad: KiCad 9 and 10 get the 0.x build, KiCad 11 (and its nightlies) the
+1.x build, which runs through KiCad's IPC API. When you install that one, KiCad
+offers to turn on its API server; say yes, or turn it on later under
+**Preferences → Plugins**.
 
 ### Method 2: Manual Installation
+
+These steps are for KiCad 9 and 10. For KiCad 11, download the release's
+`-ipc.zip` and install it with the Plugin and Content Manager's
+**Install from File…**.
 
 #### Step 1: Locate Your KiCad Plugins Directory
 
@@ -77,7 +83,9 @@ KiCad skips.
 
 ```bash
 git clone https://github.com/hulryung/kicad-lcsc-manager.git
-cp -R kicad-lcsc-manager/plugins/lcsc_manager [your-kicad-plugins-directory]/
+cd kicad-lcsc-manager
+./scripts/bundle-dependencies.sh    # fills lib/, which isn't in git
+cp -R plugins/lcsc_manager [your-kicad-plugins-directory]/
 ```
 
 **Option B: From a release ZIP**
@@ -145,8 +153,9 @@ Close and reopen KiCad for the plugin to be loaded.
 
 ## Verification
 
-1. Open KiCad **PCB Editor** — the plugin runs there, not in the Schematic
-   Editor, because KiCad's Python action-plugin API is pcbnew-only
+1. Open KiCad **PCB Editor** — on KiCad 9 and 10 the plugin runs there, not in
+   the Schematic Editor, because their Python action-plugin API is pcbnew-only
+   (the KiCad 11 build has a button in both editors)
 2. Look for the LCSC Manager icon in the toolbar
 3. Or go to **Tools → External Plugins** and check that **LCSC Manager** is
    listed
@@ -212,5 +221,5 @@ Then restart KiCad.
 
 ## Next Steps
 
-Once installed, check out the [Usage Guide](README.md#-usage) to learn how to
+Once installed, check out the [Usage Guide](README.md#usage) to learn how to
 import components.

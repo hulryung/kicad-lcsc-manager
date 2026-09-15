@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **README rewritten for the current plugin.** Changes:
+  - A new screenshot of today's search dialog.
+  - Installation now covers the KiCad 11 build.
+  - Usage covers both editors and when KiCad needs a reopen or restart.
+  - The FAQ, requirements and project layout are up to date.
+  - The credits were checked against the code. The table listed a `footprint_handlers.py` that no longer exists and 3D functions under names that don't.
+  - Release notes now live only in CHANGELOG.md; the README's version banners are gone.
+  - The stale instructions are gone: the uninstall script (it only knows KiCad 6–9's old plugin folders), `pip install -r requirements.txt` and `pytest`.
+- INSTALL.md:
+  - It covers the KiCad 11 build.
+  - Installing from a git clone now runs `scripts/bundle-dependencies.sh` first. `lib/` isn't in git, so that install relied on KiCad's Python happening to include `requests`.
+  - Its link to the README's usage section is fixed.
+
 ## [0.9.0] - 2026-09-15
 
 Published as **0.9.0** (SWIG build, KiCad 9 and 10) and **1.9.0** (IPC build, KiCad 11 and its 10.99 nightlies); see *Two builds per release* below.
