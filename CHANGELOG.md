@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-09-15
+
+Published as **0.9.0** (SWIG build, KiCad 9 and 10) and **1.9.0** (IPC build, KiCad 11 and its 10.99 nightlies); see *Two builds per release* below.
 
 ### Fixed
 - **Release workflow: a rejected metadata push went unnoticed.** The last step pushed the tag's tree to `main` with `git push origin HEAD:main || echo "Nothing to push"`. When the tag lagged behind `main` — v0.7.1 was tagged before the v0.7.0 metadata commit had been pulled — the push was rejected, the run still went green, and the PCM never listed the release until the metadata was fixed by hand. The metadata step now lives in `scripts/publish-metadata.sh`: it updates a fresh worktree of the latest `main` (so entries already on `main` are never lost), retries if `main` moves during the run, fails the job if it still can't publish, and does nothing when re-run for a release that's already recorded. The workflow's three inline copies of `scripts/update-metadata.py` are gone, and releases run one at a time.
