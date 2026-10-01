@@ -6,14 +6,16 @@ and managing library configuration
 """
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
+import glob
 import re
 from ..utils.logger import get_logger
 from ..utils.config import get_config
 from ..converters.symbol_converter import SymbolConverter
 from ..converters.footprint_converter import FootprintConverter
 from ..converters.model_3d_converter import Model3DConverter
-from .lib_table import (ensure_lib_entry, LibTableError, ADDED, UPDATED,
-                        CONFLICT)
+from .lib_table import (ensure_lib_entry, read_lib_uri, LibTableError, ADDED,
+                        UPDATED, CONFLICT)
+from . import symbol_lib
 from ..utils.kicad_host import KiCadHost, get_host
 
 logger = get_logger()
@@ -185,18 +187,74 @@ class LibraryManager:
         """
         self.logger.info("Importing symbol")
 
-        # Convert symbol
-        symbol_content = self.symbol_converter.convert(easyeda_data, component_info)
+        # One import at a time reads, changes and rewrites the library.
+        with symbol_lib.LOCK:
+            # The part's current name if it's being imported again (so it is
+            # replaced, not duplicated); otherwise a name no other part has.
+            wanted = self.symbol_converter._get_symbol_name(component_info)
+            try:
+                symbol_name = symbol_lib.choose_symbol_name(
+                    self.symbol_lib_path, wanted,
+                    component_info.get("lcsc_id", ""))
+            except symbol_lib.SymbolLibraryError as e:
+                raise IOError(symbol_lib.untouched_message(e))
+            if symbol_name != wanted:
+                self.logger.info(f"Symbol name {wanted!r} -> {symbol_name!r}")
 
-        # Save to library
-        self.symbol_converter.save_to_library(
-            symbol_content=symbol_content,
-            library_path=self.symbol_lib_path,
-            append=True
-        )
+            # Convert symbol
+            symbol_content = self.symbol_converter.convert(
+                easyeda_data, component_info, symbol_name=symbol_name)
 
-        symbol_name = self.symbol_converter._get_symbol_name(component_info)
+            # Save to library
+            self.symbol_converter.save_to_library(
+                symbol_content=symbol_content,
+                library_path=self.symbol_lib_path,
+                append=True
+            )
+
         return symbol_name
+
+    def imported_symbol_ids(self) -> set:
+        """LCSC numbers of the parts that have a symbol in the library."""
+        if self.lib_base_path is None:
+            return set()
+        try:
+            return {s.lcsc_id for s in symbol_lib.list_symbols(self.symbol_lib_path)
+                    if s.lcsc_id}
+        except (symbol_lib.SymbolLibraryError, OSError) as e:
+            self.logger.warning(f"Could not read the symbol library: {e}")
+            return set()
+
+    def find_existing(self, lcsc_id: str,
+                      symbol_ids: Optional[set] = None) -> Dict[str, bool]:
+        """
+        What the libraries already hold for an LCSC part. Importing it again
+        replaces these, including any edits made since.
+
+        Args:
+            lcsc_id: LCSC part number
+            symbol_ids: imported_symbol_ids(), when checking many parts, so
+                the symbol library is read once
+
+        Returns:
+            {"symbol": bool, "footprint": bool, "model_3d": bool}
+        """
+        found = {"symbol": False, "footprint": False, "model_3d": False}
+        if not lcsc_id or self.lib_base_path is None:
+            return found
+        try:
+            if symbol_ids is None:
+                symbol_ids = self.imported_symbol_ids()
+            found["symbol"] = lcsc_id in symbol_ids
+            # Footprints are files named <LCSC id>_<package>.kicad_mod.
+            found["footprint"] = any(self.footprint_lib_path.glob(
+                f"{glob.escape(lcsc_id)}_*.kicad_mod"))
+            found["model_3d"] = any(
+                (self.model_3d_path / f"{lcsc_id}{ext}").exists()
+                for ext in (".wrl", ".step"))
+        except OSError as e:
+            self.logger.warning(f"Could not check for existing files: {e}")
+        return found
 
     def _import_footprint(
         self,
@@ -377,55 +435,66 @@ class LibraryManager:
         """
         Update sym-lib-table file.
 
-        Since this plugin runs in pcbnew, we cannot update the symbol library
-        table in eeschema's memory. We write to disk and notify the user
-        to reload libraries in the schematic editor.
+        The symbol library table of a running session can't be updated from
+        here, so the row is written to disk; the dialogs tell the user to
+        reopen the schematic editor.
 
         Returns:
             Notification message if user action is needed, None otherwise
         """
-        lib_table_path = self.project_path.parent / "sym-lib-table"
+        notice, _ = self._ensure_project_table(
+            "sym", "sym-lib-table", self.config.get("symbol_lib_nickname"),
+            self.config.get_kiprjmod_uris()["symbol_lib"],
+            "imported components", "Symbol")
+        return notice
 
-        lib_name = self.config.get("symbol_lib_nickname")
-        lib_path = self.config.get_kiprjmod_uris()["symbol_lib"]
+    def _ensure_project_table(self, kind: str, table_name: str, nickname: str,
+                              uri: str, descr: str,
+                              editor: str) -> Tuple[Optional[str], bool]:
+        """
+        Make sure the project's library table maps `nickname` to `uri`,
+        through the same row-aware, atomic editor as the global tables
+        (lib_table.py).
 
+        Returns:
+            (notification message if user action is needed, else None;
+             whether the row was added just now)
+        """
+        table_path = self.project_path.parent / table_name
+        manual = (f"Add it under Preferences → Manage {editor} Libraries "
+                  f"(Project Specific Libraries tab): {nickname} → {uri}.")
         try:
-            # Check if library table exists
-            if lib_table_path.exists():
-                with open(lib_table_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+            outcome = ensure_lib_entry(table_path, kind, nickname, uri, descr,
+                                       backup=False)
+        except (LibTableError, OSError) as e:
+            self.logger.error(f"Failed to update {table_name}: {e}")
+            return (f"Couldn't update the project's {table_name} ({e}). "
+                    + manual), False
+        self.logger.info(f"Project {table_name}: {nickname} {outcome}")
+        if outcome == CONFLICT:
+            # A row with this nickname that LCSC Manager's current versions
+            # didn't write: one from an older version, or the user's own.
+            other = read_lib_uri(table_path, nickname)
+            if self._same_project_location(other, uri):
+                return None, False
+            return (f"The project's {table_name} already has a library named "
+                    f'"{nickname}", pointing to {other}, so it was left alone '
+                    f"and KiCad won't find the parts imported to {uri}. "
+                    "Rename or remove that library, then import again."), False
+        return None, outcome == ADDED
 
-                # Check if our library is already registered
-                if lib_name in content:
-                    self.logger.info("Symbol library already registered")
-                    return None
+    def _same_project_location(self, uri_a: Optional[str], uri_b: str) -> bool:
+        """Whether two library URIs name the same place in this project."""
+        if not uri_a:
+            return False
+        project_dir = str(self.project_path.parent)
 
-                # Add library entry before closing parenthesis
-                content = content.rstrip().rstrip(')')
-
-                entry = f'''  (lib (name "{lib_name}")(type "KiCad")(uri "{lib_path}")(options "")(descr "LCSC imported components"))
-)
-'''
-                content = content + '\n' + entry
-
-            else:
-                # Create new library table with version tag
-                content = f'''(sym_lib_table
-  (version 7)
-  (lib (name "{lib_name}")(type "KiCad")(uri "{lib_path}")(options "")(descr "LCSC imported components"))
-)
-'''
-
-            # Write library table
-            with open(lib_table_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-
-            self.logger.info(f"Symbol library table updated: {lib_table_path}")
-            return None
-
-        except Exception as e:
-            self.logger.error(f"Failed to update symbol library table: {e}")
-            return f"Failed to register symbol library: {e}"
+        def resolved(uri: str) -> str:
+            try:
+                return str(Path(uri.replace("${KIPRJMOD}", project_dir)).resolve())
+            except OSError:
+                return uri
+        return resolved(uri_a) == resolved(uri_b)
 
     def _update_footprint_lib_table(self) -> Optional[str]:
         """
@@ -496,40 +565,9 @@ class LibraryManager:
             (notification message if user action is needed, else None;
              whether the row was added just now)
         """
-        lib_table_path = self.project_path.parent / "fp-lib-table"
-
-        try:
-            if lib_table_path.exists():
-                with open(lib_table_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-
-                if lib_name in content:
-                    self.logger.info("Footprint library already registered")
-                    return None, False
-
-                content = content.rstrip().rstrip(')')
-
-                entry = f'''  (lib (name "{lib_name}")(type "KiCad")(uri "{lib_uri}")(options "")(descr "LCSC imported footprints"))
-)
-'''
-                content = content + '\n' + entry
-
-            else:
-                content = f'''(fp_lib_table
-  (version 7)
-  (lib (name "{lib_name}")(type "KiCad")(uri "{lib_uri}")(options "")(descr "LCSC imported footprints"))
-)
-'''
-
-            with open(lib_table_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-
-            self.logger.info(f"Footprint library table file updated: {lib_table_path}")
-            return None, True
-
-        except Exception as e:
-            self.logger.error(f"Failed to update footprint library table: {e}")
-            return f"Failed to register footprint library: {e}", False
+        return self._ensure_project_table(
+            "fp", "fp-lib-table", lib_name, lib_uri, "imported footprints",
+            "Footprint")
 
     def get_library_info(self) -> Dict[str, Any]:
         """

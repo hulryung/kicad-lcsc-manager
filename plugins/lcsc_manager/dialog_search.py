@@ -1125,11 +1125,64 @@ class LCSCManagerSearchDialog(wx.Dialog):
                              False, "No EasyEDA data available for this component.")
                 return
 
-            wx.CallAfter(self._import_progress_update, 30, "Importing component files...")
+            # Back on the GUI thread: a part that's already in the library
+            # is only replaced once the user has agreed.
+            wx.CallAfter(self._import_confirm, component_info, display_id,
+                         import_symbol, import_footprint, import_3d)
 
+        except Exception as e:
+            logger.error(f"Import failed: {e}", exc_info=True)
+            wx.CallAfter(self._import_finish, False, f"Import failed:\n{str(e)}")
+
+    def _import_confirm(self, component_info, display_id, import_symbol,
+                        import_footprint, import_3d):
+        """Ask before replacing a part that's already in the library, then
+        run the import (called on main thread)."""
+        try:
+            existing = self.library_manager.find_existing(
+                component_info.get("lcsc_id") or display_id)
+        except Exception as e:
+            # Never leave the app-modal progress dialog up.
+            logger.error(f"Import failed: {e}", exc_info=True)
+            self._import_finish(False, f"Import failed:\n{str(e)}")
+            return
+        replaced = [label for key, label, wanted in (
+            ("symbol", "symbol", import_symbol),
+            ("footprint", "footprint", import_footprint),
+            ("model_3d", "3D model", import_3d),
+        ) if wanted and existing.get(key)]
+        if replaced:
+            answer = wx.MessageBox(
+                f"{display_id} is already in your library "
+                f"({', '.join(replaced)}).\n\n"
+                "Importing it again replaces what's there, including any "
+                "changes you made to it. Replace?",
+                "Already Imported",
+                wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+                self._import_progress or self)
+            if answer != wx.YES:
+                logger.info(f"Import of {display_id} cancelled: already in library")
+                if self._import_progress:
+                    self._import_progress.Destroy()
+                    self._import_progress = None
+                return
+
+        self._import_progress_update(30, "Importing component files...")
+        thread = threading.Thread(
+            target=self._import_run,
+            args=(component_info, display_id, import_symbol, import_footprint,
+                  import_3d),
+            daemon=True
+        )
+        thread.start()
+
+    def _import_run(self, component_info, display_id, import_symbol,
+                    import_footprint, import_3d):
+        """Write the component into the libraries in background thread"""
+        try:
             # Import component
             result = self.library_manager.import_component(
-                easyeda_data=easyeda_data,
+                easyeda_data=component_info["easyeda_data"],
                 component_info=component_info,
                 import_symbol=import_symbol,
                 import_footprint=import_footprint,

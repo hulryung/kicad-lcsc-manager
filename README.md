@@ -23,6 +23,9 @@ What changed in each release: [CHANGELOG.md](CHANGELOG.md) and the
   you.
 - **Keep going:** the dialog stays open after an import, and a status line
   lists what you've imported so far.
+- **Import again safely:** importing a part that's already in your library
+  replaces it instead of duplicating it, and asks first, so edits you made
+  aren't overwritten by accident.
 - **Import a whole BOM:** JLCPCB, EasyEDA and KiCad BOMs with an LCSC part
   number column, in one pass.
 - **Choose where parts go:** inside each project (the default) or one shared

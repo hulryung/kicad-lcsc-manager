@@ -8,12 +8,29 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 from ..utils.logger import get_logger
 from ..utils.config import get_config
+from ..utils.files import sexpr_escape
 try:
     from .jlc2kicad import symbol_handlers
 except ImportError:
     symbol_handlers = None
 
 logger = get_logger()
+
+
+def sanitize_name(text: str) -> str:
+    """Make a part description or package usable as a KiCad symbol or
+    footprint name (same rules as JLC2KiCad_lib). The symbol's Footprint
+    field and the footprint's file name both go through this, so they can't
+    drift apart."""
+    return (text
+            .replace(" ", "_")
+            .replace(".", "_")
+            .replace("/", "{slash}")
+            .replace("\\", "{backslash}")
+            .replace("<", "{lt}")
+            .replace(">", "{gt}")
+            .replace(":", "{colon}")
+            .replace('"', "{dblquote}"))
 
 
 class SymbolConverter:
@@ -27,7 +44,8 @@ class SymbolConverter:
     def convert(
         self,
         easyeda_data: Dict[str, Any],
-        component_info: Dict[str, Any]
+        component_info: Dict[str, Any],
+        symbol_name: Optional[str] = None
     ) -> str:
         """
         Convert EasyEDA symbol data to KiCad symbol format
@@ -35,6 +53,9 @@ class SymbolConverter:
         Args:
             easyeda_data: Raw EasyEDA symbol data (complete API response)
             component_info: Component metadata (name, description, etc.)
+            symbol_name: Name to give the symbol; derived from the part's
+                description when omitted. The library manager passes one
+                that doesn't clash with another part's symbol.
 
         Returns:
             KiCad symbol content (S-expression format)
@@ -46,7 +67,7 @@ class SymbolConverter:
 
         try:
             # Extract symbol data from EasyEDA format
-            symbol_name = self._get_symbol_name(component_info)
+            symbol_name = symbol_name or self._get_symbol_name(component_info)
             reference = component_info.get("prefix", "U").replace("?", "")
 
             # Create symbol using JLC2KiCad handlers
@@ -65,7 +86,7 @@ class SymbolConverter:
             # Fallback to placeholder
             self.logger.warning("Falling back to placeholder symbol")
             return self._create_placeholder_symbol(
-                symbol_name=self._get_symbol_name(component_info),
+                symbol_name=symbol_name or self._get_symbol_name(component_info),
                 reference=component_info.get("prefix", "U").replace("?", ""),
                 value=component_info.get("description", "Unknown"),
                 description=component_info.get("description", ""),
@@ -102,6 +123,8 @@ class SymbolConverter:
                 self.pinNumbersHide = "(pin_numbers hide)"
 
         kicad_symbol = KicadSymbol()
+        # Everything below goes inside "..." in the library file.
+        name = sexpr_escape(symbol_name)
 
         # Extract shape data from EasyEDA response
         if "dataStr" not in easyeda_data:
@@ -131,7 +154,7 @@ class SymbolConverter:
             unit_shape = unit.get("dataStr", {}).get("shape", []) or []
 
             # Add drawing start (unit_demorgan format for KiCad 9.0)
-            kicad_symbol.drawing += f'\n    (symbol "{symbol_name}_{unit_index}_1"'
+            kicad_symbol.drawing += f'\n    (symbol "{name}_{unit_index}_1"'
 
             for line in unit_shape:
                 args = [i for i in line.split("~")]
@@ -170,19 +193,20 @@ class SymbolConverter:
             self.logger.info(f"Multi-unit symbol: {len(units)} units")
 
         # Build complete symbol with properties
-        lcsc_id = component_info.get("lcsc_id", "")
-        datasheet = component_info.get("datasheet", "")
-        description = component_info.get("description", "")
-        manufacturer = component_info.get("manufacturer", "")
+        reference = sexpr_escape(reference)
+        lcsc_id = sexpr_escape(component_info.get("lcsc_id", ""))
+        datasheet = sexpr_escape(component_info.get("datasheet", ""))
+        description = sexpr_escape(component_info.get("description", ""))
+        manufacturer = sexpr_escape(component_info.get("manufacturer", ""))
 
         # Generate footprint reference (library:footprint format)
-        footprint_name = self._get_footprint_reference(component_info)
+        footprint_name = sexpr_escape(self._get_footprint_reference(component_info))
 
         complete_symbol = f'''(kicad_symbol_lib
   (version 20241209)
   (generator "kicad_lcsc_manager")
   (generator_version "1.0")
-  (symbol "{symbol_name}"
+  (symbol "{name}"
     (exclude_from_sim no)
     (in_bom yes)
     (on_board yes)
@@ -248,21 +272,13 @@ class SymbolConverter:
         Returns:
             Symbol name
         """
-        # Use description (e.g., "RP2040") as the symbol name
-        description = component_info.get("description", "Unknown")
-
-        # Sanitize name for KiCad (same as JLC2KiCad_lib)
-        name = (description
-                .replace(" ", "_")
-                .replace(".", "_")
-                .replace("/", "{slash}")
-                .replace("\\", "{backslash}")
-                .replace("<", "{lt}")
-                .replace(">", "{gt}")
-                .replace(":", "{colon}")
-                .replace('"', "{dblquote}"))
-
-        return name
+        # Use description (e.g., "RP2040") as the symbol name; a part
+        # without one falls back to its name, then its LCSC number.
+        description = (component_info.get("description")
+                       or component_info.get("name")
+                       or component_info.get("lcsc_id")
+                       or "Unknown")
+        return sanitize_name(str(description).strip()) or "Unknown"
 
     def _get_footprint_reference(self, component_info: Dict[str, Any]) -> str:
         """
@@ -277,18 +293,8 @@ class SymbolConverter:
         lcsc_id = component_info.get("lcsc_id", "Unknown")
         package = component_info.get("package", "Unknown")
 
-        # Sanitize package name for KiCad (same as footprint_converter)
-        package = (package
-                   .replace(" ", "_")
-                   .replace(".", "_")
-                   .replace("/", "{slash}")
-                   .replace("\\", "{backslash}")
-                   .replace("<", "{lt}")
-                   .replace(">", "{gt}")
-                   .replace(":", "{colon}")
-                   .replace('"', "{dblquote}"))
-
-        footprint_name = f"{lcsc_id}_{package}"
+        # Same rule as footprint_converter, which names the file.
+        footprint_name = f"{lcsc_id}_{sanitize_name(package)}"
 
         # KiCad footprint reference format: library_nickname:footprint_name
         # Get library nickname from component_info (set by library_manager from fp-lib-table)
@@ -323,6 +329,14 @@ class SymbolConverter:
         Returns:
             KiCad symbol S-expression
         """
+        symbol_name = sexpr_escape(symbol_name)
+        reference = sexpr_escape(reference)
+        value = sexpr_escape(value)
+        description = sexpr_escape(description)
+        datasheet = sexpr_escape(datasheet)
+        manufacturer = sexpr_escape(manufacturer)
+        lcsc_id = sexpr_escape(lcsc_id)
+        footprint = sexpr_escape(footprint)
         symbol = f'''(kicad_symbol_lib
   (version 20241209)
   (generator "kicad_lcsc_manager")
@@ -436,10 +450,13 @@ class SymbolConverter:
         """
         Save symbol to KiCad library file
 
+        An existing symbol of the same name is replaced. A file that isn't a
+        symbol library is left untouched (see library/symbol_lib.py).
+
         Args:
-            symbol_content: KiCad symbol S-expression
+            symbol_content: KiCad symbol S-expression (a one-symbol library)
             library_path: Path to .kicad_sym file
-            append: If True, append to existing library; if False, overwrite
+            append: If True, add to an existing library; if False, overwrite
 
         Returns:
             True if successful
@@ -447,42 +464,22 @@ class SymbolConverter:
         Raises:
             IOError: If file operation fails
         """
+        from ..library import symbol_lib
+        from ..utils.files import atomic_write_text
+
         try:
-            library_path.parent.mkdir(parents=True, exist_ok=True)
-
-            if append and library_path.exists():
-                # Read existing library
-                with open(library_path, 'r', encoding='utf-8') as f:
-                    existing = f.read()
-
-                # Check if it's a valid library file
-                if not existing.strip().startswith('(kicad_symbol_lib'):
-                    self.logger.warning("Existing file is not a valid symbol library")
-                    append = False
-                else:
-                    # Remove closing parenthesis
-                    existing = existing.rstrip().rstrip(')')
-
-                    # Extract just the symbol definition (without wrapper)
-                    symbol_def = symbol_content
-                    if '(kicad_symbol_lib' in symbol_def:
-                        # Extract inner symbol definition
-                        start = symbol_def.find('(symbol')
-                        end = symbol_def.rfind(')')
-                        symbol_def = symbol_def[start:end]
-
-                    # Append symbol and close
-                    content = existing + '\n' + symbol_def + '\n)\n'
+            if append:
+                outcome = symbol_lib.put_symbol(library_path, symbol_content)
             else:
-                content = symbol_content
-
-            # Write to file
-            with open(library_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-
-            self.logger.info(f"Symbol saved to: {library_path}")
+                library_path.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write_text(library_path, symbol_content)
+                outcome = "written"
+            self.logger.info(f"Symbol saved to: {library_path} ({outcome})")
             return True
 
+        except symbol_lib.SymbolLibraryError as e:
+            self.logger.error(f"Symbol library left untouched: {e}")
+            raise IOError(symbol_lib.untouched_message(e))
         except Exception as e:
             self.logger.error(f"Failed to save symbol: {e}", exc_info=True)
             raise IOError(f"Failed to save symbol: {e}")
