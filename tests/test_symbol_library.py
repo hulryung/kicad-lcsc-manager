@@ -389,32 +389,38 @@ def fake_import(**kw):
 lm.import_component = fake_import
 info = {{"lcsc_id": "C100", "description": "PART", "easyeda_data": {{"x": 1}}}}
 
-def progress():
+def already_there(lcsc_id, symbol_ids=None):
+    return {{"symbol": True, "footprint": True, "model_3d": False}}
+
+# Each step: (label, what to do before it, which artifacts to import).
+STEPS = [
+    ("new part", lambda: None, (True, True, True)),                 # no question
+    ("declined", lambda: setattr(lm, "find_existing", already_there), (True, True, True)),
+    ("3d only", lambda: None, (False, False, True)),                # nothing to replace
+    ("replaced", lambda: answer.__setitem__(0, wx.YES), (True, True, True)),
+]
+
+def run_step(index):
+    if index == len(STEPS):
+        dlg.Destroy()
+        app.ExitMainLoop()
+        return
+    label, prepare, flags = STEPS[index]
+    prepare()
     dlg._import_progress = wx.GenericProgressDialog("t", "m", maximum=100, parent=dlg)
+    dlg._import_confirm(info, "C100", *flags)
+    wait(index, label, 0)
 
-def wait_for_import():
-    deadline = time.time() + 10
-    while dlg._import_progress is not None and time.time() < deadline:
-        wx.Yield(); time.sleep(0.02)
+def wait(index, label, tries):
+    if dlg._import_progress is not None and tries < 200:
+        wx.CallLater(50, wait, index, label, tries + 1)
+        return
+    print(label + ":", asked, imported, dlg._import_progress is None, flush=True)
+    wx.CallLater(50, run_step, index + 1)
 
-# 1. Not in the library: imported without a question.
-progress(); dlg._import_confirm(info, "C100", True, True, True); wait_for_import()
-print("new part:", asked, imported)
-
-# 2. Already there, user says No: nothing written, progress dialog gone.
-lm.find_existing = lambda lcsc_id, symbol_ids=None: {{"symbol": True, "footprint": True, "model_3d": False}}
-progress(); dlg._import_confirm(info, "C100", True, True, True); wait_for_import()
-print("declined:", asked, imported, dlg._import_progress is None)
-
-# 3. Only the 3D model is wanted and there is none: no question.
-progress(); dlg._import_confirm(info, "C100", False, False, True); wait_for_import()
-print("3d only:", asked, imported)
-
-# 4. Already there, user says Yes.
-answer[0] = wx.YES
-progress(); dlg._import_confirm(info, "C100", True, True, True); wait_for_import()
-print("replaced:", asked, imported, dlg._import_progress is None)
-dlg.Destroy()
+dlg.Show()
+wx.CallLater(200, run_step, 0)
+app.MainLoop()
 """
 
 
@@ -428,14 +434,17 @@ def test_search_dialog_confirm_flow_under_kicad_python():
     home = tempfile.mkdtemp()
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
     env.update(HOME=home, KICAD_CONFIG_HOME=home, KICAD_API_TOKEN="t")   # no SWIG registration
+    # The extra arguments stop macOS from showing a "Reopen windows?" prompt
+    # (which would hang the test) after earlier abrupt exits of a wx process.
     run = subprocess.run([str(kicad_python), "-c",
-                          CONFIRM_SCRIPT.format(plugins=str(REPO / "plugins"))],
-                         capture_output=True, text=True, env=env, timeout=300)
+                          CONFIRM_SCRIPT.format(plugins=str(REPO / "plugins")),
+                          "-ApplePersistenceIgnoreState", "YES"],
+                         capture_output=True, text=True, env=env, timeout=120)
     out = run.stdout
     assert run.returncode == 0, run.stderr[-1500:]
-    assert "new part: [] ['C100']" in out, out
+    assert "new part: [] ['C100'] True" in out, out
     assert "declined: ['Already Imported'] ['C100'] True" in out, out
-    assert "3d only: ['Already Imported'] ['C100', 'C100']" in out, out
+    assert "3d only: ['Already Imported'] ['C100', 'C100'] True" in out, out
     assert "replaced: ['Already Imported', 'Already Imported'] ['C100', 'C100', 'C100'] True" in out, out
     print("test_search_dialog_confirm_flow_under_kicad_python: PASS")
 

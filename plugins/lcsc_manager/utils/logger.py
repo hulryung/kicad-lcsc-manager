@@ -2,8 +2,15 @@
 Logging utility for LCSC Manager plugin
 """
 import logging
+import logging.handlers
 import os
 from pathlib import Path
+
+BASE = "lcsc_manager"
+# The log used to grow without limit, at debug level. Now: this much, plus
+# two older files (lcsc_manager.log.1, .2).
+MAX_BYTES = 1024 * 1024
+BACKUPS = 2
 
 # Console handlers write to stderr. The IPC entry point turns them off, since
 # it points stderr at the log file itself (see ipc_main.py).
@@ -25,39 +32,62 @@ def log_to_file_only() -> None:
     _console_handlers.clear()
 
 
-def setup_logger(name: str = "lcsc_manager") -> logging.Logger:
+class _QuietRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """Rotation that never gets in the plugin's way. On Windows the rename
+    fails while another process (a second KiCad, the IPC plugin) has the
+    log open; keep writing to the current file instead of raising on every
+    record."""
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except OSError:
+            if self.stream is None:
+                self.stream = self._open()
+
+
+def setup_logger(name: str = BASE) -> logging.Logger:
     """
-    Setup and configure logger for the plugin
+    Setup and configure the plugin's logger. All other loggers are its
+    children, so there is one file handler (and one open file) however many
+    modules log.
 
     Args:
-        name: Logger name
+        name: Logger name (kept for compatibility; the base logger is
+            always the one configured)
 
     Returns:
         Configured logger instance
     """
-    logger = logging.getLogger(name)
+    logger = logging.getLogger(BASE)
 
     # Only setup if not already configured
     if logger.handlers:
         return logger
 
     logger.setLevel(logging.DEBUG)
-
-    # Create logs directory in user's home
-    path = log_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    # File handler
-    file_handler = logging.FileHandler(path)
-    file_handler.setLevel(logging.DEBUG)
+    # KiCad or another plugin may have set up the root logger; don't let
+    # our records show up there a second time.
+    logger.propagate = False
 
     # Formatter
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+
+    # File handler. A home folder that can't be written to (read-only,
+    # sandboxed) must not stop the plugin from loading.
+    try:
+        path = log_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = _QuietRotatingFileHandler(
+            path, maxBytes=MAX_BYTES, backupCount=BACKUPS, encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    except OSError:
+        logger.addHandler(logging.NullHandler())
 
     # Console handler
     if _console_logging:
@@ -70,17 +100,18 @@ def setup_logger(name: str = "lcsc_manager") -> logging.Logger:
     return logger
 
 
-def get_logger(name: str = "lcsc_manager") -> logging.Logger:
+def get_logger(name: str = BASE) -> logging.Logger:
     """
     Get logger instance
 
     Args:
-        name: Logger name
+        name: Logger name; anything but the base name becomes a child of
+            the base logger ("lcsc_manager.<name>")
 
     Returns:
         Logger instance
     """
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        return setup_logger(name)
-    return logger
+    base = setup_logger()
+    if name == BASE or not name:
+        return base
+    return base.getChild(name[len(BASE) + 1:] if name.startswith(BASE + ".") else name)

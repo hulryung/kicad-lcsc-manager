@@ -8,8 +8,10 @@ import glob
 import json
 import sys
 import requests
+import threading
 import time
 from typing import Dict, List, Optional, Any
+from urllib.parse import urlparse
 from pathlib import Path
 from ..utils.logger import get_logger
 from ..utils.config import get_config
@@ -87,6 +89,17 @@ class LCSCRateLimitError(LCSCAPIError):
     pass
 
 
+def ca_bundle():
+    """What to pass as `verify=` to requests: the CA bundle found for this
+    machine (KiCad's own certifi on macOS, else the certifi package), or
+    True for the system default. Every download should use it, or it can
+    fail with certificate errors where the API calls work."""
+    global _CA_BUNDLE
+    if _CA_BUNDLE is None:
+        _CA_BUNDLE = _discover_ca_bundle() or ""
+    return _CA_BUNDLE or True
+
+
 class LCSCAPIClient:
     """Client for interacting with LCSC/EasyEDA APIs"""
 
@@ -95,17 +108,26 @@ class LCSCAPIClient:
     EASYEDA_COMPONENT_URL = "https://easyeda.com/api/components/{uid}"
     EASYEDA_SEARCH_URL = "https://easyeda.com/api/components/search"
 
-    # Rate limiting
-    MAX_REQUESTS_PER_MINUTE = 30
-    REQUEST_DELAY = 5.0  # seconds between requests
+    # Rate limiting: a minimum gap between requests to the same host. Each
+    # host has its own clock, so fetching a part's EasyEDA data and its
+    # JLCPCB stock info back to back doesn't wait. (Until 0.9.1 every
+    # request waited 5 s after the previous one, whatever the host: 10 s
+    # per part in a BOM.) A host that answers 403/429 gets a longer gap for
+    # the rest of the session.
+    REQUEST_INTERVAL = 0.5          # seconds, per host
+    HOST_INTERVALS = {"jlcpcb.com": 1.0}
+    MAX_REQUEST_INTERVAL = 5.0
     RETRY_DELAY = 10.0  # seconds to wait before retry on 403
+
+    _rate_lock = threading.Lock()
+    _next_request_at: Dict[str, float] = {}     # host -> monotonic time
+    _host_interval: Dict[str, float] = {}       # host -> current gap
 
     CACHE_DIR = Path.home() / ".kicad_lcsc_manager_cache"
 
     def __init__(self):
         """Initialize LCSC API client"""
         self.config = get_config()
-        self.last_request_time = 0
         self.use_cache = bool(self.config.get("api_cache_enabled", False))
         if self.use_cache:
             self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -115,17 +137,12 @@ class LCSCAPIClient:
         session = requests.Session()
         # Apply CA bundle for SSL verification (KiCad-embedded certifi on macOS,
         # then certifi package, then system default). Discovered once per process.
-        global _CA_BUNDLE
-        if _CA_BUNDLE is None:
-            _CA_BUNDLE = _discover_ca_bundle() or ""
-        if _CA_BUNDLE:
-            session.verify = _CA_BUNDLE
+        session.verify = ca_bundle()
         # Use realistic browser headers to avoid API blocking
         session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9,ko;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br, zstd',
             'Referer': 'https://jlcpcb.com/parts',
             'Origin': 'https://jlcpcb.com',
             'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
@@ -138,14 +155,34 @@ class LCSCAPIClient:
         })
         return session
 
-    def _rate_limit(self):
-        """Implement rate limiting to avoid hitting API limits"""
-        elapsed = time.time() - self.last_request_time
-        if elapsed < self.REQUEST_DELAY:
-            sleep_time = self.REQUEST_DELAY - elapsed
-            logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f}s")
-            time.sleep(sleep_time)
-        self.last_request_time = time.time()
+    @staticmethod
+    def _host(url: str) -> str:
+        return urlparse(url).hostname or ""
+
+    def _interval(self, host: str) -> float:
+        return self._host_interval.get(
+            host, self.HOST_INTERVALS.get(host, self.REQUEST_INTERVAL))
+
+    def _rate_limit(self, url: str):
+        """Wait until this host may be asked again. Safe to call from
+        several threads (previews, imports): each caller reserves the next
+        free slot under the lock, then sleeps outside it."""
+        host = self._host(url)
+        with self._rate_lock:
+            now = time.monotonic()
+            start = max(now, self._next_request_at.get(host, 0.0))
+            self._next_request_at[host] = start + self._interval(host)
+        if start > now:
+            logger.debug(f"Rate limiting {host}: sleeping for {start - now:.2f}s")
+            time.sleep(start - now)
+
+    def _slow_down(self, url: str):
+        """The host is throttling: widen its gap for the rest of the session."""
+        host = self._host(url)
+        with self._rate_lock:
+            wider = min(self.MAX_REQUEST_INTERVAL, max(2.0, self._interval(host) * 2))
+            self._host_interval[host] = wider
+        logger.info(f"Requests to {host} are now spaced {wider:.1f}s apart")
 
     def _cache_path(self, identifier: str, extension: str = "json") -> Path:
         """Return cache file path for the given identifier."""
@@ -187,7 +224,8 @@ class LCSCAPIClient:
         params: Optional[Dict] = None,
         json_data: Optional[Dict] = None,
         timeout: Optional[int] = None,
-        retry_count: int = 0
+        retry_count: int = 0,
+        max_retries: int = 3
     ) -> Dict:
         """
         Make HTTP request with error handling and rate limiting
@@ -199,6 +237,7 @@ class LCSCAPIClient:
             json_data: JSON request body
             timeout: Request timeout in seconds
             retry_count: Internal retry counter
+            max_retries: How often to wait and retry when rate-limited
 
         Returns:
             Response JSON data
@@ -206,7 +245,7 @@ class LCSCAPIClient:
         Raises:
             LCSCAPIError: If request fails
         """
-        self._rate_limit()
+        self._rate_limit(url)
 
         if timeout is None:
             timeout = self.config.get("api_timeout", 30)
@@ -241,16 +280,18 @@ class LCSCAPIClient:
             # EasyEDA throttles with 403 Forbidden (and, per HTTP, 429).
             # Back off and retry before giving up.
             if status in (403, 429):
-                if retry_count < 3:
+                self._slow_down(url)
+                if retry_count < max_retries:
                     wait_time = self.RETRY_DELAY * (retry_count + 1)  # Exponential backoff
                     logger.warning(
                         f"Got HTTP {status} (rate limited), waiting {wait_time}s "
-                        f"before retry {retry_count + 1}/3"
+                        f"before retry {retry_count + 1}/{max_retries}"
                     )
                     if session:
                         session.close()
                     time.sleep(wait_time)
-                    return self._make_request(method, url, params, json_data, timeout, retry_count + 1)
+                    return self._make_request(method, url, params, json_data, timeout,
+                                              retry_count + 1, max_retries)
                 logger.error(f"Rate limited (HTTP {status}); retries exhausted")
                 raise LCSCRateLimitError(
                     "EasyEDA is rate-limiting requests. Wait a few seconds and try again."
@@ -289,7 +330,10 @@ class LCSCAPIClient:
             response = self._make_request(
                 method="POST",
                 url=self.JLCPCB_SEARCH_URL,
-                json_data={"keyword": lcsc_id}
+                json_data={"keyword": lcsc_id},
+                # Stock and price are optional extras when the caller
+                # swallows errors; don't hold an import up for a minute.
+                max_retries=1 if swallow_errors else 3
             )
 
             if response.get("code") != 200:

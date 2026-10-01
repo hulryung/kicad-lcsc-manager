@@ -10,6 +10,7 @@ import threading
 import wx
 
 from .bom.bom_importer import BomImporter, BomImportOptions
+from .utils.ui import fit_to_screen, status_colour
 from .utils.logger import get_logger
 from .utils.session import REOPEN_HINT
 
@@ -39,8 +40,7 @@ class BomImportDialog(wx.Dialog):
         self.imported_parts = []
 
         self._create_ui(default_options)
-        self.SetSize((760, 560))
-        self.SetMinSize((640, 440))
+        fit_to_screen(self, (760, 560), (640, 440))
         self.CenterOnParent()
 
     # -- UI ------------------------------------------------------------------
@@ -63,7 +63,7 @@ class BomImportDialog(wx.Dialog):
 
         for w in r.warnings:
             wl = wx.StaticText(self, label="⚠ " + w)
-            wl.SetForegroundColour(wx.Colour(180, 120, 0))
+            wl.SetForegroundColour(status_colour("warn"))
             main.Add(wl, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # Parts list with per-row checkboxes
