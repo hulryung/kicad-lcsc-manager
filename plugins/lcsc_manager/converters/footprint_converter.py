@@ -13,7 +13,9 @@ import tempfile
 from typing import Dict, Any
 from pathlib import Path
 
+from ..utils.files import atomic_write_text
 from ..utils.logger import get_logger
+from .symbol_converter import sanitize_name
 from ..vendor.easyeda2kicad.easyeda.easyeda_importer import EasyedaFootprintImporter
 from ..vendor.easyeda2kicad.kicad.export_kicad_footprint import ExporterFootprintKicad
 
@@ -129,17 +131,8 @@ class FootprintConverter:
         """Generate the on-disk footprint name: ``LCSCID_SANITIZED_PACKAGE``."""
         lcsc_id = component_info.get("lcsc_id", "Unknown")
         package = component_info.get("package", "Unknown")
-        package = (
-            package.replace(" ", "_")
-                   .replace(".", "_")
-                   .replace("/", "{slash}")
-                   .replace("\\", "{backslash}")
-                   .replace("<", "{lt}")
-                   .replace(">", "{gt}")
-                   .replace(":", "{colon}")
-                   .replace('"', "{dblquote}")
-        )
-        return f"{lcsc_id}_{package}"
+        # Same rule as the symbol's Footprint field (symbol_converter).
+        return f"{lcsc_id}_{sanitize_name(package)}"
 
     def save_to_library(
         self,
@@ -147,14 +140,18 @@ class FootprintConverter:
         footprint_name: str,
         library_path: Path,
     ) -> bool:
-        """Write the footprint into `<library_path>/<footprint_name>.kicad_mod`."""
+        """Write the footprint into `<library_path>/<footprint_name>.kicad_mod`.
+
+        Raises:
+            IOError: the file couldn't be written. (This used to return
+                False, which the caller ignored and reported as a success.)
+        """
         try:
             library_path.mkdir(parents=True, exist_ok=True)
             out_file = library_path / f"{footprint_name}.kicad_mod"
-            with open(out_file, "w", encoding="utf-8") as f:
-                f.write(footprint_content)
+            atomic_write_text(out_file, footprint_content)
             self.logger.info(f"Footprint saved: {out_file}")
             return True
         except Exception as e:
             self.logger.error(f"Failed to save footprint: {e}")
-            return False
+            raise IOError(f"Failed to save footprint: {e}")

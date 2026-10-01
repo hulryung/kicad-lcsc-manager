@@ -733,62 +733,16 @@ class LCSCManagerDialog(wx.Dialog):
         Returns:
             Dictionary with exists flags for symbol, footprint, 3d_model
         """
-        self.config.load_project_overrides(self.project_path)
-        symbol_file = self.config.get_symbol_lib_path(self.project_path)
-        footprint_dir = self.config.get_footprint_lib_path(self.project_path)
-        model_dir = self.config.get_3d_model_path(self.project_path)
-
-        lcsc_id = component_info.get("lcsc_id", "")
-        package = component_info.get("package", "Unknown")
-        symbol_name = component_info.get("description", component_info.get("name", ""))
-
-        exists = {
-            "symbol": False,
-            "footprint": False,
-            "3d_wrl": False,
+        # The same lookup as the search dialog. Symbols are matched by their
+        # LCSC property: the name in the library is a sanitised description,
+        # so looking for the raw description (as this used to) missed most.
+        found = self.library_manager.find_existing(component_info.get("lcsc_id", ""))
+        return {
+            "symbol": found["symbol"],
+            "footprint": found["footprint"],
+            "3d_wrl": found["model_3d"],
             "3d_step": False,
         }
-
-        # Check symbol - need to parse the library file
-        if symbol_file.exists():
-            try:
-                # Check file size to avoid reading huge files into memory
-                file_size = symbol_file.stat().st_size
-                max_size = 10 * 1024 * 1024  # 10MB limit
-
-                if file_size > max_size:
-                    logger.warning(f"Symbol file too large ({file_size} bytes), skipping content check")
-                    # For very large files, assume symbol might exist to be safe
-                    exists["symbol"] = True
-                else:
-                    with open(symbol_file, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                        # Look for symbol definition with this name
-                        # Format: (symbol "RP2040" ...
-                        if f'(symbol "{symbol_name}"' in content:
-                            exists["symbol"] = True
-            except Exception as e:
-                logger.warning(f"Failed to check symbol file: {e}")
-                # If we can't parse it, leave as False (don't assume exists)
-
-        # Check footprint - footprints are separate files
-        footprint_name = package.replace(" ", "_").replace(".", "_")
-        footprint_name = (footprint_name
-                          .replace("/", "{slash}")
-                          .replace("\\", "{backslash}")
-                          .replace("<", "{lt}")
-                          .replace(">", "{gt}")
-                          .replace(":", "{colon}")
-                          .replace('"', "{dblquote}"))
-        footprint_name = f"{lcsc_id}_{footprint_name}"
-        footprint_file = footprint_dir / f"{footprint_name}.kicad_mod"
-        exists["footprint"] = footprint_file.exists()
-
-        # Check 3D models - separate files
-        exists["3d_wrl"] = (model_dir / f"{lcsc_id}.wrl").exists()
-        exists["3d_step"] = (model_dir / f"{lcsc_id}.step").exists()
-
-        return exists
 
     def GetLCSCId(self) -> str:
         """

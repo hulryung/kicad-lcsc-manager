@@ -12,10 +12,11 @@ user has, so edits here are deliberately conservative:
 
 Kept free of wx/pcbnew imports so it can be unit-tested outside KiCad.
 """
-import os
 import re
 import shutil
 from pathlib import Path
+
+from ..utils.files import atomic_write_text
 
 # Written into the descr of entries we create, so we can recognise — and
 # later update — our own rows without ever touching the user's.
@@ -52,15 +53,11 @@ def _entry_line(nickname: str, uri: str, descr: str) -> str:
             f'(uri "{_escape(uri)}") (options "") (descr "{_escape(descr)}"))\n')
 
 
-def _atomic_write(path: Path, text: str) -> None:
-    tmp = path.with_name(path.name + ".lcsc_manager.tmp")
-    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-    os.replace(tmp, path)
+_atomic_write = atomic_write_text
 
 
 def ensure_lib_entry(table_path: Path, kind: str, nickname: str, uri: str,
-                     descr: str) -> str:
+                     descr: str, backup: bool = True) -> str:
     """
     Make sure `table_path` maps `nickname` to `uri`.
 
@@ -70,6 +67,10 @@ def ensure_lib_entry(table_path: Path, kind: str, nickname: str, uri: str,
         nickname: library nickname
         uri: library URI, written verbatim (may contain ${VARS})
         descr: description; OWNER_TAG is prepended if missing
+        backup: keep a one-time copy of the table before its first edit.
+            On for KiCad's global tables; off for a project's own, which
+            are small, usually under version control, and would otherwise
+            gain a stray file in the project folder.
 
     Returns:
         ADDED     — a new row was written (or the table was created)
@@ -110,7 +111,8 @@ def ensure_lib_entry(table_path: Path, kind: str, nickname: str, uri: str,
         descr_match = _DESCR_RE.search(line)
         if not descr_match or OWNER_TAG not in _unescape(descr_match.group(1)):
             return CONFLICT
-        _backup_once(table_path)
+        if backup:
+            _backup_once(table_path)
         new_line = (line[:uri_match.start(1)] + _escape(uri)
                     + line[uri_match.end(1):])
         lines[index] = new_line
@@ -121,7 +123,8 @@ def ensure_lib_entry(table_path: Path, kind: str, nickname: str, uri: str,
     if close < 0:
         raise LibTableError(f"{table_path} has no closing parenthesis")
     body = text[:close].rstrip("\n\t ") + "\n"
-    _backup_once(table_path)
+    if backup:
+        _backup_once(table_path)
     _atomic_write(table_path,
                   body + _entry_line(nickname, uri, descr) + text[close:].lstrip())
     return ADDED

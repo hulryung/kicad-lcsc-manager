@@ -152,6 +152,10 @@ class BomImportDialog(wx.Dialog):
                           "No import options", wx.OK | wx.ICON_WARNING)
             return
 
+        selected = self._confirm_replacing(selected, options)
+        if not selected:
+            return
+
         self._cancel_event.clear()
         self._total = len(selected)
         self._progress = wx.GenericProgressDialog(
@@ -170,6 +174,51 @@ class BomImportDialog(wx.Dialog):
             daemon=True,
         )
         thread.start()
+
+    def _confirm_replacing(self, selected, options):
+        """Parts already in the library are replaced by an import, edits
+        included, so ask first. Returns the entries to import ([] to stop)."""
+        def already_there(entry):
+            found = self.library_manager.find_existing(entry.lcsc_id, symbol_ids)
+            return ((options.import_symbol and found["symbol"])
+                    or (options.import_footprint and found["footprint"])
+                    or (options.import_3d and found["model_3d"]))
+
+        try:
+            symbol_ids = self.library_manager.imported_symbol_ids()
+            existing = [e for e in selected if already_there(e)]
+        except Exception as e:
+            logger.warning(f"Could not check for existing parts: {e}")
+            return selected
+        if not existing:
+            return selected
+
+        ids = ", ".join(e.lcsc_id for e in existing[:8])
+        if len(existing) > 8:
+            ids += f", … ({len(existing) - 8} more)"
+        dlg = wx.MessageDialog(
+            self,
+            f"{len(existing)} of the {len(selected)} selected part(s) are "
+            f"already in your library:\n{ids}\n\n"
+            "Importing them again replaces what's there, including any "
+            "changes you made to them.",
+            "Already Imported",
+            wx.YES_NO | wx.CANCEL | wx.NO_DEFAULT | wx.ICON_QUESTION)
+        dlg.SetYesNoLabels("Replace", "Skip those")
+        try:
+            answer = dlg.ShowModal()
+        finally:
+            dlg.Destroy()
+        if answer == wx.ID_YES:
+            return selected
+        if answer == wx.ID_NO:
+            skipped = {e.lcsc_id for e in existing}
+            remaining = [e for e in selected if e.lcsc_id not in skipped]
+            if not remaining:
+                wx.MessageBox("Every selected part is already in your library.",
+                              "Nothing to import", wx.OK | wx.ICON_INFORMATION)
+            return remaining
+        return []
 
     def _run_import(self, importer, entries, options):
         summary = importer.import_entries(

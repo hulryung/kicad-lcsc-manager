@@ -2,6 +2,8 @@ import logging
 import math
 import re
 
+from ...utils.files import sexpr_escape
+
 RELATIVE_OFFSET = 0.254
 ABSOLUTE_OFFSET_X = 101.6
 ABSOLUTE_OFFSET_Y = -63.5
@@ -209,12 +211,12 @@ def h_P(data, translation, kicad_symbol, raw_line: str = ""):
       (pin {electrical_type} line
         (at {x1} {y1} {rotation})
         (length {length})
-        (name "{pin_name}"
+        (name "{sexpr_escape(pin_name)}"
           (effects
             (font (size {name_size} {name_size}))
           )
         )
-        (number "{pin_number}"
+        (number "{sexpr_escape(pin_number)}"
           (effects
             (font (size {number_size} {number_size}))
           )
@@ -264,7 +266,7 @@ def h_T(data, translation, kicad_symbol):
 
     kicad_symbol.drawing += f"""
       (text
-        "{text}"
+        "{sexpr_escape(text)}"
         (at {x1} {y1} {rotation})
         (effects 
             (font (size {font_size} {font_size}))

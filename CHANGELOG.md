@@ -5,7 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.1] - 2026-10-02
+
+Published as **0.9.1** (KiCad 9 and 10) and **1.9.1** (KiCad 11). This release is about keeping your libraries intact.
+
+### Fixed
+- **An import could empty the symbol library.** If the existing `.kicad_sym` didn't start with `(kicad_symbol_lib` (for example, a file saved with a byte-order mark), the import opened it for writing, which emptied it, and then failed. Every symbol in it was lost. A file that isn't a parseable symbol library is now left exactly as it is, and the import says so. A byte-order mark is accepted, and an empty file counts as a library with nothing in it.
+- **A double quote in a part's description made the whole library unloadable.** Descriptions, manufacturer names, datasheet links, pin names and symbol texts were written between quotes without escaping, so `10k "thick film"` ended the string early, and KiCad then refused the library (kicad-cli: "Unable to load library"), along with every other symbol in it. Quotes, backslashes and line breaks are now escaped.
+- **Importing a part again added a second copy of its symbol.** It now replaces the symbol (found by its `LCSC` property, so also after you rename it in KiCad). Copies left by earlier versions are collapsed the next time that part is imported.
+- **Replacing is no longer silent.** Importing a part that's already in the library overwrote its footprint and 3D model, including any edits, without asking; only the basic fallback dialog asked, and its check for symbols looked for the raw description, which rarely matched the stored name. The search dialog now asks before replacing, the BOM dialog offers *Replace* / *Skip those* once for the whole batch, and all three use the same lookup.
+- **Two parts with the same description shared one symbol name**, such as a 0402 and a 0603 resistor both described as `10KΩ ±1%`, so one hid the other. The second now gets the name plus its LCSC number (`10KΩ_±1%_C25744`). A part with no description is named after its part name or LCSC number, not `""`.
+- **The symbol library and footprints are written atomically** (to a temporary file that then replaces the original), so a crash or a full disk can't leave half a file. Imports that run at the same time, as in a BOM batch next to a single import, take turns on the symbol library.
+- **A footprint that couldn't be written was reported as imported.** It is now an error.
+- **The project's `sym-lib-table` and `fp-lib-table` were edited by text search.** A nickname that merely appeared inside another row (`lcsc_imported_old`, or a description mentioning it) counted as "already registered", so the library was never added, and the file was rewritten in place. They now go through the same row-aware, atomic editor as the global tables. A row with our nickname that points somewhere else is left alone and reported; rows written by earlier versions are recognised.
+
+### Added
+- `tests/test_symbol_library.py` covers all of the above. With KiCad installed, kicad-cli has to load the libraries the plugin wrote, and the real search dialog's ask-before-replacing flow runs under KiCad's Python. The fixes were mutation-checked, and the whole flow was run end to end with a real part: first import, a declined replace, an accepted replace, one symbol at the end.
 
 ### Changed
 - **README rewritten for the current plugin.** Changes:
