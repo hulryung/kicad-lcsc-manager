@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.2] - 2026-10-02
+
+Published as **0.9.2** (KiCad 9 and 10) and **1.9.2** (KiCad 11).
 
 ### Changed
 - **Imports are about ten times faster.** Every request used to wait 5 s after the previous one, whichever server it went to, and a part needs two (EasyEDA for the symbol and footprint, JLCPCB for stock and price). That was 10 s of waiting per part in a BOM. Requests are now spaced per server (0.5 s, JLCPCB 1 s), so the two don't wait for each other. Measured with ten real parts: 10 s in total, where 0.9.1 spent at least 95 s waiting. A server that answers 403/429 gets a wider gap (up to 5 s) for the rest of the session, and the limiter is now safe to use from several threads, which the previews and imports always did.
