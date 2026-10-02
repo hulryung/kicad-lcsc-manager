@@ -180,6 +180,9 @@ def check_package(build: Build, zip_path: Path) -> None:
                 problems.append(f"no {required}")
         if not any(n.startswith("plugins/lib/") for n in names):
             problems.append("no bundled dependencies (plugins/lib/)")
+        if any(n.startswith("plugins/lib/bin/") for n in names):
+            problems.append("console scripts in plugins/lib/bin/ "
+                            "(run scripts/bundle-dependencies.sh)")
         if "metadata.json" in names:
             versions = json.loads(zf.read("metadata.json"))["versions"]
             if versions != [build.version_entry()]:

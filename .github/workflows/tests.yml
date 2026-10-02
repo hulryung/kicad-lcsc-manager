@@ -1,0 +1,36 @@
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is what KiCad 9 and 10 bundle (the oldest the plugin must run
+        # on); the other is a current Python.
+        python-version: ['3.9', '3.13']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Bundle Python dependencies
+        run: ./scripts/bundle-dependencies.sh
+
+      # The offline tests. Those that need KiCad's own Python or kicad-cli
+      # skip themselves here; run them on a machine with KiCad (TESTING.md).
+      - name: Run tests
+        run: python3 scripts/run-tests.py

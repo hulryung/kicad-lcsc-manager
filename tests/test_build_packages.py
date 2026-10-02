@@ -267,6 +267,52 @@ def test_command_line():
     print("test_command_line: PASS")
 
 
+# ─── the served metadata ──────────────────────────────────────────────
+
+def test_served_metadata_is_consistent():
+    """KiCad refuses a repository whose packages.json doesn't match the
+    hash in repository.json, so a hand edit of one must update the other.
+    The package fields are in two files and must say the same."""
+    import hashlib
+    repo = json.loads((REPO / "repository.json").read_text(encoding="utf-8"))
+    assert repo["packages"]["sha256"] == \
+        hashlib.sha256((REPO / "packages.json").read_bytes()).hexdigest(), \
+        "repository.json's sha256 is stale: KiCad would reject the repository"
+    package = json.loads((REPO / "packages.json").read_text(encoding="utf-8"))["packages"][0]
+    root = json.loads((REPO / "metadata.json").read_text(encoding="utf-8"))
+    for key in ("name", "description", "description_full", "identifier", "tags", "license"):
+        assert package[key] == root[key], f"{key} differs between packages.json and metadata.json"
+    assert package["versions"] == root["versions"]
+    # KiCad's PCM schema.
+    assert len(root["description"]) <= 500 and len(root["description_full"]) <= 5000
+    tag = re.compile(r"^[a-z][-a-z0-9]{0,48}[a-z0-9]$")
+    assert root["tags"] and len(set(root["tags"])) == len(root["tags"])
+    assert all(tag.match(t) for t in root["tags"]), root["tags"]
+    print("test_served_metadata_is_consistent: PASS")
+
+
+def test_packages_carry_the_tags_and_no_console_scripts():
+    out, built = _build()
+    swig = builds_for("0.9.0")[0]
+    with zipfile.ZipFile(out / swig.zip_name) as zf:
+        meta = json.loads(zf.read("metadata.json"))
+        assert meta["tags"] == json.loads((REPO / "metadata.json").read_text())["tags"]
+        assert "plugins/plugin_resources/README.md" not in zf.namelist()
+    # lib/bin holds console scripts with the build machine's Python path.
+    bad = Path(tempfile.mkdtemp()) / "bad.zip"
+    with zipfile.ZipFile(out / swig.zip_name) as zin, zipfile.ZipFile(bad, "w") as zout:
+        for item in zin.infolist():
+            zout.writestr(item, zin.read(item.filename))
+        zout.writestr("plugins/lib/bin/normalizer", "#!/opt/homebrew/bin/python3\n")
+    try:
+        pcm_builds.check_package(swig, bad)
+    except ValueError as e:
+        assert "console scripts" in str(e), e
+    else:
+        raise AssertionError("lib/bin must be refused")
+    print("test_packages_carry_the_tags_and_no_console_scripts: PASS")
+
+
 # ─── update-metadata.py ───────────────────────────────────────────────
 
 def _metadata_copy():

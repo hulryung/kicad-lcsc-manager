@@ -1,54 +1,28 @@
 # Tests
 
-This directory contains test scripts for the KiCad LCSC Manager plugin.
-
-## Test Files
-
-### API Tests
-
-- **test_api_endpoints.py** - Test basic API endpoint connectivity
-- **test_api_detailed.py** - Detailed API response structure testing
-- **test_updated_api.py** - Test updated API implementation
-- **test_jlcpcb_api.py** - Test JLCPCB API for stock/pricing information
-- **test_integrated_api.py** - Test integrated EasyEDA + JLCPCB API workflow
-
-### Conversion Tests
-
-- **test_conversion.py** - Test symbol and footprint conversion
-  - Validates real conversion generates proper KiCad files
-  - Tests pin count, pad count, and file sizes
-  - Example component: C2040 (Raspberry Pi RP2040)
-
-- **test_easyeda_structure.py** - Test EasyEDA API response structure
-  - Validates API response contains required fields
-  - Checks for shape data, packageDetail, etc.
-
-## Running Tests
-
-All tests can be run from the project root:
+Every `test_*.py` here is a plain script with assertions; it prints
+`<test name>: PASS` per test and stops at the first failure.
 
 ```bash
-# Run specific test
-python3 tests/test_conversion.py
-
-# Run API tests
-python3 tests/test_integrated_api.py
-
-# Run all tests
-for test in tests/test_*.py; do
-    echo "Running $test..."
-    python3 "$test"
-done
+./scripts/bundle-dependencies.sh        # once: fills plugins/lcsc_manager/lib
+python3 scripts/run-tests.py            # all offline tests
+python3 scripts/run-tests.py symbol     # only files whose name contains "symbol"
+python3 scripts/run-tests.py --network  # also the two that call LCSC/EasyEDA
+python3 tests/test_symbol_library.py    # one file, with its full output
 ```
 
-## Test Requirements
+CI runs `scripts/run-tests.py` on every push and pull request (Python 3.9
+and a current one), and the release workflow runs it before building the
+packages.
 
-- Tests require the plugin modules to be importable
-- Some tests require internet connectivity (API tests)
-- Component C2040 is used as the standard test component
+- **Offline tests** need nothing but the repository. A few also drive
+  KiCad's own Python or `kicad-cli` when KiCad is installed and print `SKIP`
+  where it isn't; see [TESTING.md](../TESTING.md).
+- **Network tests** (`test_regression_components.py`,
+  `test_footprint_matches_upstream.py`) import real parts, so they can fail
+  for reasons outside the code. They run only with `--network`.
+- `fake_kicad_api.py` isn't a test: it stands in for KiCad's API server when
+  trying the KiCad 11 build without KiCad (TESTING.md).
 
-## Notes
-
-- Tests are standalone scripts, not using pytest framework
-- Each test includes its own validation and output
-- Tests output success/failure indicators (✓/✗)
+Tests never touch your real KiCad or LCSC Manager settings: they use
+temporary folders and a sandboxed `KICAD_CONFIG_HOME`.

@@ -2,11 +2,12 @@
 
 ## Automated tests
 
-Every `tests/test_*.py` is a plain script: `python3 tests/<file>.py`. Run
+Run everything with `python3 scripts/run-tests.py` (add `--network` for the
+two tests that import real parts from LCSC/EasyEDA). CI runs the same command
+on every push, and the release workflow runs it before building. Each
+`tests/test_*.py` is also a plain script: `python3 tests/<file>.py`. Run
 `./scripts/bundle-dependencies.sh` once first; it fills
-`plugins/lcsc_manager/lib/` with the libraries the plugin ships with. Most
-tests need nothing else. A few talk to LCSC, EasyEDA or JLCPCB and need
-network access (`test_api_*`, `test_full_import_with_3d`, …). Some drive
+`plugins/lcsc_manager/lib/` with the libraries the plugin ships with. Some drive
 **KiCad's bundled Python** and `kicad-cli` directly — no KiCad window, no GUI
 automation — and are skipped on machines without KiCad:
 
