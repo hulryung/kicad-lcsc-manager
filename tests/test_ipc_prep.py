@@ -39,8 +39,14 @@ def _env(**extra):
     return env
 
 
+# macOS: a wx process that dies or exits abruptly a few times makes the next
+# launch of that Python.app stop at a "Reopen windows?" prompt, which nobody
+# answers in a test run. This argument turns that state restoration off.
+NO_WINDOW_RESTORE = ["-ApplePersistenceIgnoreState", "YES"]
+
+
 def _run(python, code, **env):
-    return subprocess.run([str(python), "-c", textwrap.dedent(code)],
+    return subprocess.run([str(python), "-c", textwrap.dedent(code), *NO_WINDOW_RESTORE],
                           env=_env(**env), capture_output=True, text=True,
                           timeout=300)
 

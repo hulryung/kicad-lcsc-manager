@@ -17,6 +17,7 @@ from typing import Dict, Optional
 
 import wx
 
+from .utils.ui import fit_to_screen, status_colour
 from .utils.config import (Config, PATH_KEYS, LAYERED_KEYS, LOCATION_PROJECT,
                            LOCATION_SHARED, expand_path_vars,
                            validate_path_value, validate_shared_path)
@@ -52,6 +53,7 @@ class SettingsDialog(wx.Dialog):
         self.preview_status: Dict[str, wx.StaticText] = {}
 
         self._build_ui()
+        fit_to_screen(self, (840, 720), (640, 480))
         # Open on the scope that actually supplies the settings in effect.
         # Always opening on "This project only" made a Global save look lost
         # when the dialog was reopened, and invited a project Save that then
@@ -67,7 +69,7 @@ class SettingsDialog(wx.Dialog):
         # which only decides where these *settings* are stored (issue #20).
         loc_box = wx.StaticBox(self, label="Library location")
         loc_sizer = wx.StaticBoxSizer(loc_box, wx.VERTICAL)
-        muted = wx.Colour(100, 100, 100)
+        muted = status_colour("muted")
 
         self.radio_loc_project = wx.RadioButton(
             self, label="Inside each project", style=wx.RB_GROUP)
@@ -114,7 +116,7 @@ class SettingsDialog(wx.Dialog):
             ctrl = wx.TextCtrl(self)
             ctrl.Bind(wx.EVT_TEXT, self._on_value_change)
             badge = wx.StaticText(self, label="[default]")
-            badge.SetForegroundColour(wx.Colour(120, 120, 120))
+            badge.SetForegroundColour(status_colour("muted"))
 
             grid.Add(label, 0, wx.ALIGN_CENTER_VERTICAL)
             grid.Add(ctrl, 1, wx.EXPAND)
@@ -196,7 +198,7 @@ class SettingsDialog(wx.Dialog):
             label="⚠ Changes apply to future imports only. "
                   "Existing libraries are not moved automatically.",
         )
-        warn.SetForegroundColour(wx.Colour(150, 90, 0))
+        warn.SetForegroundColour(status_colour("warn"))
         warn.Wrap(600)
         main.Add(warn, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
 
@@ -395,15 +397,15 @@ class SettingsDialog(wx.Dialog):
             stored = self.config.get_scope_values(scope).get(key)
             if stored is not None and current != str(stored):
                 badge.SetLabel("[edited]")
-                badge.SetForegroundColour(wx.Colour(150, 90, 0))
+                badge.SetForegroundColour(status_colour("warn"))
                 continue
             _value, source = self.config.resolve_for_scope_view(key, scope)
             if source == scope:
                 badge.SetLabel(f"[{scope}]")
-                badge.SetForegroundColour(wx.Colour(0, 110, 0))
+                badge.SetForegroundColour(status_colour("ok"))
             else:
                 badge.SetLabel(f"[from {source}]")
-                badge.SetForegroundColour(wx.Colour(120, 120, 120))
+                badge.SetForegroundColour(status_colour("muted"))
 
     def _refresh_scope_notice(self) -> None:
         """Say what Save does in the current scope for the open project."""
@@ -414,14 +416,14 @@ class SettingsDialog(wx.Dialog):
             text = ("⚠ This project overrides Global for: " + fields +
                     ". Global changes won't affect this project until those "
                     "overrides are removed.")
-            colour = wx.Colour(150, 90, 0)
+            colour = status_colour("warn")
         elif scope == "project":
             text = ("Only values that differ from Global are stored for this "
                     "project; the rest keep following Global.")
-            colour = wx.Colour(100, 100, 100)
+            colour = status_colour("muted")
         else:
             text = ""
-            colour = wx.Colour(100, 100, 100)
+            colour = status_colour("muted")
         self.scope_notice.SetLabel(text)
         self.scope_notice.SetForegroundColour(colour)
         self.scope_notice.Wrap(740)
@@ -466,10 +468,10 @@ class SettingsDialog(wx.Dialog):
                     lbl.SetLabel(str(p))
                     if p.exists():
                         self.preview_status[k].SetLabel("✓ exists")
-                        self.preview_status[k].SetForegroundColour(wx.Colour(0, 110, 0))
+                        self.preview_status[k].SetForegroundColour(status_colour("ok"))
                     else:
                         self.preview_status[k].SetLabel("(will create)")
-                        self.preview_status[k].SetForegroundColour(wx.Colour(120, 120, 120))
+                        self.preview_status[k].SetForegroundColour(status_colour("muted"))
         self.Layout()
 
     def _refresh_save_button(self, errors: Dict[str, str]) -> None:

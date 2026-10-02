@@ -28,6 +28,10 @@ CANT_REACH = (
 )
 NO_PROJECT = "No project is open. Please open a board or schematic first."
 NOT_SAVED = "Please save your project first.\n\n{path} doesn't exist yet."
+ALREADY_OPEN = (
+    "LCSC Manager is already open for this project.\n\n"
+    "Look for its window; it may be behind KiCad's."
+)
 
 
 def load_package(folder: Path = PLUGIN_DIR):
@@ -93,6 +97,25 @@ def find_project(host) -> Tuple[Optional[Path], str]:
     return project, ""
 
 
+def single_instance(project: Path):
+    """A lock that says whether LCSC Manager is already open for this
+    project, or None if that can't be told. Each press of the toolbar
+    button starts a new process; two of them would edit the same library
+    files side by side. Keep the returned object alive while running."""
+    import hashlib
+    import tempfile
+    import wx
+
+    try:
+        key = hashlib.sha1(str(project.parent).encode("utf-8")).hexdigest()[:16]
+        return wx.SingleInstanceChecker(f"lcsc-manager-{wx.GetUserId()}-{key}",
+                                        tempfile.gettempdir())
+    except Exception as e:
+        from lcsc_manager.utils.logger import get_logger
+        get_logger().debug(f"No single-instance check: {e}")
+        return None
+
+
 def run(host=None) -> int:
     """Open the LCSC Manager dialog for the project open in KiCad."""
     import wx
@@ -115,8 +138,14 @@ def run(host=None) -> int:
         logger.warning(problem)
         show_error(problem)
         return 0
+    instance = single_instance(project)
+    if instance is not None and instance.IsAnotherRunning():
+        logger.info(f"Already open for {project}")
+        show_error(ALREADY_OPEN)
+        return 0
     logger.info(f"LCSC Manager (IPC) started for {project}")
-    open_main_dialog(project)
+    open_main_dialog(project, bring_to_front=True)
+    del instance
     return 0
 
 

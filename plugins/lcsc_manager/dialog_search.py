@@ -20,8 +20,9 @@ try:
 except ImportError:
     HAS_WEBVIEW = False
 
-from .api.lcsc_api import get_api_client, LCSCAPIError, LCSCRateLimitError
+from .api.lcsc_api import ca_bundle, get_api_client, LCSCAPIError, LCSCRateLimitError
 from .library.library_manager import LibraryManager
+from .utils.ui import fit_to_screen, status_colour
 from .utils.logger import get_logger
 from .utils.config import get_config
 from .utils.session import ImportSession, REOPEN_HINT
@@ -60,11 +61,18 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self.search_results = []  # List of search result dicts
         self.selected_component = None  # Currently selected component
         self.current_page = 1  # Pagination
+        self._search_query = None  # (text, package) that produced the results
+        self._search_id = 0  # Counter to drop results of superseded searches
+        self._more_results = False  # Whether "Load More" has anything to load
+        self._restoring_selection = False
+        # Set when the dialog closes: worker threads may still report back.
+        self._closing = False
         self.preview_cache = {}  # Cache previews by uuid
 
         # Async preview loading
         self.preview_thread = None  # Current preview loading thread
         self.preview_thread_id = 0  # Counter to track preview requests
+        self._preview_timer = None  # Pending start of a preview load
 
         # An import no longer ends the dialog (issue #16): the user keeps
         # searching and adding parts until they close it. This tracks what
@@ -76,8 +84,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self._create_ui()
 
         # Set size and center
-        self.SetSize((1400, 900))
-        self.SetMinSize((1200, 800))
+        fit_to_screen(self, (1400, 900), (860, 620))
         self.CenterOnParent()
 
         # Focus search input and allow ESC to close
@@ -117,6 +124,9 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
         # Split horizontally (left/right) - balanced split for good visibility
         splitter.SplitVertically(left_panel, right_panel, 700)
+        # Keep the split in proportion when the window is narrower than the
+        # 1400 px the fixed sash position assumes, or is resized.
+        splitter.SetSashGravity(0.5)
 
         main_sizer.Add(splitter, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
@@ -153,7 +163,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # closes after an import (issue #16), this is what tells the user the
         # part actually landed once the result box is dismissed.
         self.session_label = wx.StaticText(self, label="")
-        self.session_label.SetForegroundColour(wx.Colour(0, 110, 0))
+        self.session_label.SetForegroundColour(status_colour("ok"))
         main_sizer.Add(self.session_label, 0,
                        wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
@@ -218,7 +228,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
         # Search button
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        search_btn = wx.Button(panel, label="Search")
+        search_btn = self.search_btn = wx.Button(panel, label="Search")
         search_btn.Bind(wx.EVT_BUTTON, self._on_search)
         # No alignment flag here: a horizontal sizer only honours vertical
         # ones, and wx asserts on wxALIGN_RIGHT. Inside pcbnew KiCad swallows
@@ -237,8 +247,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         # Label
-        label = wx.StaticText(panel, label="Search Results")
-        sizer.Add(label, 0, wx.ALL, 5)
+        label = self.results_label = wx.StaticText(panel, label="Search Results")
+        sizer.Add(label, 0, wx.EXPAND | wx.ALL, 5)
 
         # Results list
         self.results_list = wx.ListCtrl(
@@ -343,7 +353,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 webview = None
 
         if webview is not None:
-            webview.SetMinSize((400, 400))
+            webview.SetMinSize((300, 240))
             sizer.Add(webview, 1, wx.EXPAND | wx.ALL, 5)
             return webview
 
@@ -373,7 +383,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
             label=cause,
             style=wx.ALIGN_CENTER_HORIZONTAL,
         )
-        placeholder.SetMinSize((400, 400))
+        placeholder.SetMinSize((300, 240))
         placeholder.Wrap(380)
         sizer.Add(placeholder, 1, wx.EXPAND | wx.ALL, 5)
         return None
@@ -412,7 +422,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         if svg_content:
             body = self._strip_svg_size(svg_content)
         else:
-            body = f'<p style="color:#999;font-size:14px;">{placeholder_msg}</p>'
+            body = f'<p style="color:#666;font-size:14px;">{placeholder_msg}</p>'
 
         return f'''<!DOCTYPE html>
 <html><head><style>
@@ -460,6 +470,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         way out of a *successful* session too — return ID_OK when parts landed
         so callers can still tell a productive visit from a cancelled one.
         """
+        # Preview and search threads may still report back after this.
+        self._closing = True
         self.EndModal(wx.ID_OK if self.session.count else wx.ID_CANCEL)
 
     def _refresh_session_label(self):
@@ -502,82 +514,117 @@ class LCSCManagerSearchDialog(wx.Dialog):
             )
             return
 
-        # Reset pagination
-        self.current_page = 1
-        self.search_results = []
-        # The result list is about to be rebuilt, so the previous pick is
-        # gone from the UI. Drop it too — otherwise "Import Selected" would
-        # silently re-import the part from the *previous* search (issue #16
-        # made search → import → search → import the normal flow).
-        self.selected_component = None
+        # Perform search. The list, the results and the selection are only
+        # replaced once the new results are in (see _search_done), so a
+        # failed search leaves what's on screen consistent with them.
+        self._start_search(search_text, package, page=1)
 
-        # Perform search
-        self._perform_search(search_text, package, self.current_page)
+    def _start_search(self, search_text, package, page):
+        """Run a search in a background thread, so the request (and any
+        wait the API client inserts) doesn't freeze the window: inside
+        pcbnew that used to be all of KiCad."""
+        self._search_id += 1
+        search_id = self._search_id
+        self.search_btn.Disable()
+        self.load_more_btn.Disable()
+        self.results_label.SetLabel(
+            "Search Results — searching…" if page == 1
+            else "Search Results — loading more…")
 
-    def _perform_search(self, search_text, package, page):
-        """Perform the actual search"""
-        # Show progress
-        self.results_list.DeleteAllItems()
-        wx.BeginBusyCursor()
-        try:
-            # Call API - pass search_text as component_name, package as filter
-            results = self.api_client.advanced_search(
-                component_name=search_text,
-                value="",  # Empty
-                package=package,
-                manufacturer="",  # Empty
-                page=page
-            )
-
-            if not results:
-                wx.MessageBox(
-                    "No components found. Try different search terms.",
-                    "No Results",
-                    wx.OK | wx.ICON_INFORMATION
+        def work():
+            results, error = None, None
+            try:
+                # Pass search_text as component_name, package as filter
+                results = self.api_client.advanced_search(
+                    component_name=search_text,
+                    value="",  # Empty
+                    package=package,
+                    manufacturer="",  # Empty
+                    page=page
                 )
-                return
+            except LCSCAPIError as e:
+                error = f"Search failed: {str(e)}"
+            except Exception as e:
+                logger.error(f"Search error: {e}", exc_info=True)
+                error = f"An error occurred: {str(e)}"
+            wx.CallAfter(self._search_done, search_id, search_text, package,
+                         page, results, error)
 
-            # Store results
+        threading.Thread(target=work, daemon=True).start()
+
+    def _search_done(self, search_id, search_text, package, page, results, error):
+        """Show a finished search (called on main thread)"""
+        if self._closing or search_id != self._search_id:
+            return          # the dialog closed, or a newer search took over
+        self.search_btn.Enable()
+
+        if error:
+            # Nothing on screen changed; a failed "load more" can be retried.
+            self._update_results_label()
+            self.load_more_btn.Enable(self._more_results)
+            wx.MessageBox(error, "Search Error", wx.OK | wx.ICON_ERROR)
+            return
+
+        results = results or []
+        if page == 1:
+            # A new search replaces everything, also when it finds nothing.
+            # Otherwise "Import Selected" would import a part from the
+            # previous search that is no longer shown (issue #16 made
+            # search → import → search → import the normal flow).
+            self.search_results = list(results)
+            self.selected_component = None
+            self._search_query = (search_text, package)
+        else:
             self.search_results.extend(results)
+        self.current_page = page
+        # A full page means there may be another one.
+        self._more_results = len(results) >= 20
+        if self.sort_column >= 0:
+            self._sort_results(self.sort_column, self.sort_reverse)
+        self._refresh_results_list()
+        self.load_more_btn.Enable(self._more_results)
 
-            # Populate list
-            self._populate_results_list()
-
-            # Enable "Load More" if we got full page of results
-            if len(results) >= 20:  # Assuming 20 per page
-                self.load_more_btn.Enable(True)
-            else:
-                self.load_more_btn.Enable(False)
-
-        except LCSCAPIError as e:
+        if page == 1 and not results:
             wx.MessageBox(
-                f"Search failed: {str(e)}",
-                "Search Error",
-                wx.OK | wx.ICON_ERROR
+                "No components found. Try different search terms.",
+                "No Results",
+                wx.OK | wx.ICON_INFORMATION
             )
-        except Exception as e:
-            logger.error(f"Search error: {e}", exc_info=True)
-            wx.MessageBox(
-                f"An error occurred: {str(e)}",
-                "Error",
-                wx.OK | wx.ICON_ERROR
-            )
-        finally:
-            if wx.IsBusy():
-                wx.EndBusyCursor()
+
+    def _update_results_label(self):
+        count = len(self.search_results)
+        self.results_label.SetLabel(
+            f"Search Results ({count})" if count else "Search Results")
+
+    def _refresh_results_list(self):
+        """Rebuild the list from search_results, keeping the selection on
+        the same part (rows move when sorting or loading more)."""
+        self.results_list.DeleteAllItems()
+        self._populate_results_list()
+        self._update_results_label()
+        for index, result in enumerate(self.search_results):
+            if result is self.selected_component:
+                # The part is already selected and previewed; don't reload.
+                self._restoring_selection = True
+                try:
+                    self.results_list.Select(index)
+                    self.results_list.EnsureVisible(index)
+                finally:
+                    self._restoring_selection = False
+                break
 
     def _populate_results_list(self):
         """Populate results list with search results"""
         for result in self.search_results:
             index = self.results_list.GetItemCount()
 
-            # Get data from result
-            lcsc_id = result.get("lcsc", {}).get("number", result.get("uuid", ""))
-            title = result.get("title", "Unknown")
-            package = result.get("package", "")
-            price = result.get("price", 0)
-            stock_count = result.get("stockCount", 0)
-            library_type = result.get("libraryType", "")
+            # Get data from result. "lcsc" can be present but null.
+            lcsc_id = (result.get("lcsc") or {}).get("number") or result.get("uuid", "")
+            title = result.get("title") or "Unknown"
+            package = result.get("package") or ""
+            price = result.get("price") or 0
+            stock_count = result.get("stockCount") or 0
+            library_type = result.get("libraryType") or ""
 
             # Format price
             price_str = f"${price:.4f}" if price > 0 else "-"
@@ -616,26 +663,25 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self._sort_results(col, self.sort_reverse)
 
         # Refresh display
-        self.results_list.DeleteAllItems()
-        self._populate_results_list()
+        self._refresh_results_list()
 
     def _sort_results(self, col, reverse=False):
         """Sort search results by column"""
         # Define sort keys for each column
         def get_sort_key(result):
             if col == 0:  # LCSC ID
-                return result.get("lcsc", {}).get("number", "")
+                return (result.get("lcsc") or {}).get("number") or ""
             elif col == 1:  # Name
-                return result.get("title", "").lower()
+                return (result.get("title") or "").lower()
             elif col == 2:  # Package
-                return result.get("package", "").lower()
+                return (result.get("package") or "").lower()
             elif col == 3:  # Price
-                return result.get("price", 0)
+                return result.get("price") or 0
             elif col == 4:  # Stock
-                return result.get("stockCount", 0)
+                return result.get("stockCount") or 0
             elif col == 5:  # Type
                 # Sort Basic before Extended
-                lib_type = result.get("libraryType", "")
+                lib_type = result.get("libraryType") or ""
                 return 0 if lib_type == "Basic" else 1 if lib_type == "Extended" else 2
             return ""
 
@@ -643,16 +689,18 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
     def _on_load_more(self, event):
         """Load more search results"""
-        self.current_page += 1
-
-        # Get current search parameters
-        search_text = self.name_input.GetValue().strip()
-        package = self.package_input.GetValue().strip()
-
-        self._perform_search(search_text, package, self.current_page)
+        if not self._search_query:
+            return
+        # The next page of the search that produced what's listed, not of
+        # whatever the search box says now. The page number only advances
+        # once the page has arrived.
+        search_text, package = self._search_query
+        self._start_search(search_text, package, self.current_page + 1)
 
     def _on_result_selected(self, event):
         """Handle result selection - load previews asynchronously"""
+        if self._restoring_selection:
+            return
         index = event.GetIndex()
         if index < 0 or index >= len(self.search_results):
             return
@@ -669,10 +717,22 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self._display_previews(None, None, "Loading component information...",
                                placeholder_msg="Loading...")
 
-        # Load previews in background thread
+        # Wait a moment before fetching: arrowing through the list would
+        # otherwise queue a request chain for every row passed, and the row
+        # the user stops on would wait behind all of them.
+        if self._preview_timer is not None:
+            self._preview_timer.Stop()
+        self._preview_timer = wx.CallLater(
+            250, self._start_preview_thread, result, current_thread_id)
+
+    def _start_preview_thread(self, result, thread_id):
+        """Load previews in background thread (unless the selection moved on)"""
+        self._preview_timer = None
+        if self._closing or thread_id != self.preview_thread_id:
+            return
         thread = threading.Thread(
             target=self._load_previews_async,
-            args=(result, current_thread_id),
+            args=(result, thread_id),
             daemon=True
         )
         thread.start()
@@ -698,7 +758,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
                               'AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
                 'Accept': 'application/json',
-            })
+            }, verify=ca_bundle())
             response.raise_for_status()
             data = response.json()
 
@@ -711,8 +771,9 @@ class LCSCManagerSearchDialog(wx.Dialog):
             return result
 
         except Exception as e:
+            # Not cached: a timeout shouldn't hide this part's preview for
+            # the rest of the session.
             logger.warning(f"Failed to fetch EasyEDA SVGs: {e}")
-            self._svg_cache[lcsc_id] = None
             return None
 
     def _load_previews_async(self, result, thread_id):
@@ -936,6 +997,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
                           placeholder_msg="", footprint_placeholder="",
                           symbol_bbox=None, footprint_bbox=None):
         """Display SVG previews and specifications"""
+        if self._closing:
+            return
         fp_msg = footprint_placeholder or placeholder_msg
         self._set_webview_svg(self.symbol_webview, symbol_svg, placeholder_msg, bbox=symbol_bbox)
         self._set_webview_svg(self.footprint_webview, footprint_svg, fp_msg, bbox=footprint_bbox)
@@ -949,6 +1012,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
     def _update_specs(self, specs_text: str):
         """Update only the specifications text (called when component data finishes loading)"""
+        if self._closing:
+            return
         self.specs_text.SetValue(specs_text)
 
     def _on_settings(self, event):
@@ -973,13 +1038,13 @@ class LCSCManagerSearchDialog(wx.Dialog):
         summary = self.config.get_active_scope_summary()
         scope_text, scope_color = {
             "project": ("This project only (.lcsc_manager.json)",
-                        wx.Colour(0, 110, 0)),
+                        status_colour("ok")),
             "mixed":   ("Project override + Global/Default for the rest",
-                        wx.Colour(0, 110, 0)),
+                        status_colour("ok")),
             "global":  ("Global (~/.kicad/lcsc_manager/config.json)",
-                        wx.Colour(20, 80, 160)),
+                        status_colour("info")),
             "default": ("Default (no customization)",
-                        wx.Colour(120, 120, 120)),
+                        status_colour("muted")),
         }[summary]
         self.dest_scope_label.SetLabel(scope_text)
         self.dest_scope_label.SetForegroundColour(scope_color)
@@ -1089,6 +1154,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
             f"Fetching component data for {display_id}...\n\n\n\n",
             maximum=100,
             parent=self,
+            # CAN_ABORT gives the dialog its button: at 100% it becomes
+            # "Close", which is how the result message is dismissed.
             style=wx.PD_APP_MODAL | wx.PD_CAN_ABORT
         )
         self._import_progress.SetSize((400, -1))

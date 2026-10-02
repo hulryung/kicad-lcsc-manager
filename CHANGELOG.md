@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-10-02
+
+Published as **0.9.2** (KiCad 9 and 10) and **1.9.2** (KiCad 11).
+
+### Changed
+- **Imports are about ten times faster.** Every request used to wait 5 s after the previous one, whichever server it went to, and a part needs two (EasyEDA for the symbol and footprint, JLCPCB for stock and price). That was 10 s of waiting per part in a BOM. Requests are now spaced per server (0.5 s, JLCPCB 1 s), so the two don't wait for each other. Measured with ten real parts: 10 s in total, where 0.9.1 spent at least 95 s waiting. A server that answers 403/429 gets a wider gap (up to 5 s) for the rest of the session, and the limiter is now safe to use from several threads, which the previews and imports always did.
+- **Searching no longer freezes the window.** The search ran on the GUI thread, so a slow answer froze the dialog, and inside the PCB Editor all of KiCad. It now runs in the background: the Search button is disabled and the list heading says "searching…" meanwhile, and the heading shows the number of results.
+- **The dialog fits small screens.** Its minimum size was 1200×800, so on a 1366×768 laptop the Import and Close buttons were off-screen. The dialogs now size themselves to the screen (minimum 860×620), and the results/preview split keeps its proportion.
+- **Status colours follow the theme.** The green, blue, amber and grey labels had fixed dark values that were hard to read on a dark theme.
+- **KiCad 11 build:** the dialog is brought to the front when it opens (it could open behind KiCad's window), and pressing the toolbar button again while it's open for the same project shows a note instead of starting a second copy that would edit the same library files.
+- **The log file is rotated** at 1 MB, keeping two older files. It used to grow without limit, at debug level. All modules now share one file handler, and a home folder that can't be written to no longer stops the plugin from loading.
+- Previews wait a quarter of a second before loading, so arrowing through the results no longer queues a request for every row passed.
+
+### Fixed
+- **A failed or empty search left the old selection active**, so *Import Selected* imported a part that was no longer shown. The list, the results and the selection are now replaced together, and only when the new results arrive; a failed search changes nothing on screen.
+- ***Load More Results* used whatever the search box said at that moment**, not the search that produced the list, and a failed page was skipped on the next try. It now continues the original search, and the page only advances when it has arrived. Sorting and loading more keep the selection on the same part.
+- A slower, older search can no longer overwrite the results of a newer one, and results that arrive after the dialog closed are ignored (they used to raise in the background).
+- **3D model and preview downloads didn't use the certificate bundle** the rest of the plugin uses, so on some macOS setups the 3D download failed quietly and a placeholder box was used instead. A preview that timed out was also remembered as "no preview" for the whole session.
+- The optional stock/price lookup retried a throttled JLCPCB three times (a minute) before giving up; it now retries once. The `Accept-Encoding` header no longer advertises encodings `requests` may not be able to decode.
+- The last-resort import prompt left its app-modal progress window up after an error, which kept KiCad's windows disabled.
+
+### Added
+- `tests/test_search_and_speed.py`: the per-server limiter (also with twenty threads at once), back-off, retries, certificate bundle use, log rotation, screen-size clamping, and the real search dialog under KiCad's Python: failed, empty, superseded and late searches, *Load More*, sorting and selection. Eight of the fixes were mutation-checked. `tests/test_ipc_plugin.py` covers the second-instance note and the progress-window fix; both were also run for real with two plugin processes.
+- Tests that start a wx process pass `-ApplePersistenceIgnoreState YES`: after a few abrupt exits macOS stops such a process at a "Reopen windows?" prompt, which hung the test run.
+
 ## [0.9.1] - 2026-10-02
 
 Published as **0.9.1** (KiCad 9 and 10) and **1.9.1** (KiCad 11). This release is about keeping your libraries intact.

@@ -18,12 +18,25 @@ logger = get_logger()
 _degraded_notice_shown = False
 
 
-def open_main_dialog(project_path: Path) -> None:
+def _bring_to_front(dialog) -> None:
+    """An IPC plugin is its own process, and its window can open behind
+    KiCad's (KiCad only brings it forward itself on macOS)."""
+    def raise_it():
+        try:
+            dialog.Raise()
+            dialog.RequestUserAttention()
+        except Exception as e:      # the dialog may already be gone
+            logger.debug(f"Could not raise the dialog: {e}")
+    wx.CallAfter(raise_it)
+
+
+def open_main_dialog(project_path: Path, bring_to_front: bool = False) -> None:
     """
     Show the main plugin dialog and return once it is closed
 
     Args:
         project_path: The open board or project file
+        bring_to_front: Raise the dialog once it is shown (IPC plugin)
     """
     try:
         # Try to import advanced search dialog first. Catch any
@@ -50,6 +63,8 @@ def open_main_dialog(project_path: Path) -> None:
             # outer handler like before.
             dialog = advanced_dialog_cls(None, str(project_path))
             try:
+                if bring_to_front:
+                    _bring_to_front(dialog)
                 result = dialog.ShowModal()
 
                 if result == wx.ID_OK:
@@ -74,6 +89,8 @@ def open_main_dialog(project_path: Path) -> None:
         # Create and show dialog
         dialog = LCSCManagerDialog(None, project_path)
         try:
+            if bring_to_front:
+                _bring_to_front(dialog)
             result = dialog.ShowModal()
 
             if result == wx.ID_OK:
@@ -167,6 +184,7 @@ def _import_component(lcsc_id: str, project_path: Path) -> None:
         lcsc_id: LCSC part number
         project_path: The open board or project file
     """
+    progress = None
     try:
         # Show progress dialog
         progress = wx.ProgressDialog(
@@ -188,6 +206,7 @@ def _import_component(lcsc_id: str, project_path: Path) -> None:
         component = get_api_client().search_component(lcsc_id)
         if not component or not component.get("easyeda_data"):
             progress.Destroy()
+            progress = None
             show_error(
                 f"{lcsc_id} has no symbol/footprint in EasyEDA's library, "
                 f"so it can't be imported (the part may still exist in "
@@ -203,6 +222,7 @@ def _import_component(lcsc_id: str, project_path: Path) -> None:
 
         progress.Update(100, "Done!")
         progress.Destroy()
+        progress = None
 
         if results.get("success"):
             wx.MessageBox(
@@ -218,4 +238,9 @@ def _import_component(lcsc_id: str, project_path: Path) -> None:
 
     except Exception as e:
         logger.error(f"Import failed: {e}", exc_info=True)
+        # The progress dialog is app-modal: left up after an error it would
+        # keep every KiCad window disabled.
+        if progress is not None:
+            progress.Destroy()
+            progress = None
         show_error(f"Import failed: {str(e)}")

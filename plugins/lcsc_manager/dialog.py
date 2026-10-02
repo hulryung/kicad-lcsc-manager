@@ -6,6 +6,7 @@ import threading
 import wx
 from pathlib import Path
 from typing import Optional, Dict, Any
+from .utils.ui import status_colour
 from .utils.logger import get_logger
 from .utils.config import get_config
 from .utils.session import ImportSession, REOPEN_HINT
@@ -238,7 +239,7 @@ class LCSCManagerDialog(wx.Dialog):
         # Library path info — kept as an instance attr so we can refresh
         # the label after the Settings dialog mutates the config.
         self.lib_info = wx.StaticText(self, label="")
-        self.lib_info.SetForegroundColour(wx.Colour(100, 100, 100))
+        self.lib_info.SetForegroundColour(status_colour("muted"))
         self._refresh_lib_info()
         main_sizer.Add(self.lib_info, 0, wx.ALL | wx.EXPAND, 10)
 
@@ -246,7 +247,7 @@ class LCSCManagerDialog(wx.Dialog):
         # closes after an import (issue #16), this is what tells the user the
         # part actually landed once the result box is dismissed.
         self.session_label = wx.StaticText(self, label="")
-        self.session_label.SetForegroundColour(wx.Colour(0, 110, 0))
+        self.session_label.SetForegroundColour(status_colour("ok"))
         main_sizer.Add(self.session_label, 0,
                        wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
 

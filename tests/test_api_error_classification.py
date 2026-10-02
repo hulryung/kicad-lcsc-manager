@@ -11,9 +11,10 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import requests
-
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
+
+import lcsc_manager  # noqa: F401  puts the bundled requests on sys.path
+import requests
 
 from lcsc_manager.api.lcsc_api import (
     LCSCAPIClient,

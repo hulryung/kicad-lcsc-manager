@@ -11,7 +11,7 @@ import re
 import textwrap
 import requests
 from ..utils.logger import get_logger
-from ..api.lcsc_api import get_api_client
+from ..api.lcsc_api import ca_bundle, get_api_client
 
 logger = get_logger()
 
@@ -392,7 +392,11 @@ class Model3DConverter:
             response = requests.get(
                 url,
                 headers={"User-Agent": "kicad-lcsc-manager"},
-                timeout=30
+                timeout=30,
+                # The same CA bundle as the API calls. Without it these
+                # downloads could fail on certificates where the rest
+                # worked, leaving a placeholder box as the 3D model.
+                verify=ca_bundle()
             )
 
             if response.status_code == 200:
@@ -420,7 +424,11 @@ class Model3DConverter:
             response = requests.get(
                 url,
                 headers={"User-Agent": "kicad-lcsc-manager"},
-                timeout=30
+                timeout=30,
+                # The same CA bundle as the API calls. Without it these
+                # downloads could fail on certificates where the rest
+                # worked, leaving a placeholder box as the 3D model.
+                verify=ca_bundle()
             )
 
             if response.status_code == 200:

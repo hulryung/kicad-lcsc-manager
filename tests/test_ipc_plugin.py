@@ -314,12 +314,17 @@ def test_run_opens_the_dialog_for_the_open_project():
     board = folder / "board.kicad_pcb"
     board.write_text("")
     with _StubWx() as ctx:
-        opened, errors = [], []
-        ctx.launcher.open_main_dialog = opened.append
+        opened, errors, raised = [], [], []
+
+        def open_main_dialog(project, bring_to_front=False):
+            opened.append(project)
+            raised.append(bring_to_front)
+        ctx.launcher.open_main_dialog = open_main_dialog
         ctx.launcher.show_error = errors.append
         host = _Host(board)
         assert ipc_main.run(host) == 0
         assert opened == [board] and errors == []
+        assert raised == [True], "an IPC dialog can open behind KiCad"
         assert kicad_host.get_host() is host, "the library code must use the same host"
         assert ctx.wx.app.assert_mode == ctx.wx.APP_ASSERT_LOG
 
@@ -327,6 +332,71 @@ def test_run_opens_the_dialog_for_the_open_project():
         assert ipc_main.run(_Host(None)) == 0
         assert opened == [] and errors == [ipc_main.NO_PROJECT]
     print("test_run_opens_the_dialog_for_the_open_project: PASS")
+
+
+def test_second_instance_for_the_same_project_is_refused():
+    """Every press of the toolbar button starts a new process; two would
+    edit the same library files side by side."""
+    folder = Path(tempfile.mkdtemp())
+    board = folder / "board.kicad_pcb"
+    board.write_text("")
+    with _StubWx() as ctx:
+        names = []
+
+        class Checker:
+            def __init__(self, name, path):
+                names.append(name)
+            def IsAnotherRunning(self):
+                return len(names) > 1 and names[-1] == names[0]
+
+        ctx.wx.SingleInstanceChecker = Checker
+        ctx.wx.GetUserId = lambda: "me"
+        opened, errors = [], []
+        ctx.launcher.open_main_dialog = lambda project, bring_to_front=False: opened.append(project)
+        ctx.launcher.show_error = errors.append
+        assert ipc_main.run(_Host(board)) == 0 and opened == [board]
+        assert ipc_main.run(_Host(board)) == 0
+        assert opened == [board] and errors == [ipc_main.ALREADY_OPEN]
+        other = Path(tempfile.mkdtemp()) / "other.kicad_pcb"
+        other.write_text("")
+        assert ipc_main.run(_Host(other)) == 0 and opened == [board, other], \
+            "another project gets its own dialog"
+        assert names[0] == names[1] != names[2] and "me" in names[0]
+    print("test_second_instance_for_the_same_project_is_refused: PASS")
+
+
+def test_last_resort_import_never_leaves_its_progress_dialog_up():
+    """It is app-modal: left up after an error, every KiCad window stays
+    disabled."""
+    with _StubWx() as ctx:
+        dialogs = []
+
+        class ProgressDialog:
+            def __init__(self, *args, **kwargs):
+                self.destroyed = 0
+                dialogs.append(self)
+            def Update(self, *args):
+                return True, False
+            def Destroy(self):
+                self.destroyed += 1
+
+        ctx.wx.ProgressDialog = ProgressDialog
+        ctx.wx.PD_APP_MODAL = ctx.wx.PD_AUTO_HIDE = 0
+        import lcsc_manager.api.lcsc_api as api
+
+        class Failing:
+            def search_component(self, lcsc_id):
+                raise api.LCSCAPIError("network down")
+
+        saved = api.get_api_client
+        api.get_api_client = lambda: Failing()
+        try:
+            ctx.launcher._import_component("C1", Path("/p/board.kicad_pcb"))
+        finally:
+            api.get_api_client = saved
+        assert [d.destroyed for d in dialogs] == [1], [d.destroyed for d in dialogs]
+        assert any("network down" in message for _, message in ctx.wx.messages)
+    print("test_last_resort_import_never_leaves_its_progress_dialog_up: PASS")
 
 
 def _fake_dialog_module(name, cls_name, shown):

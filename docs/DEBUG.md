@@ -8,7 +8,8 @@ Everything the plugin does is logged to
 ~/.kicad/lcsc_manager/logs/lcsc_manager.log
 ```
 
-on every platform (`~` is your home folder). Watch it while you use the
+on every platform (`~` is your home folder). At 1 MB it is rotated; the two
+previous files are `lcsc_manager.log.1` and `.2`. Watch it while you use the
 plugin with `tail -f ~/.kicad/lcsc_manager/logs/lcsc_manager.log`. The KiCad 11
 build also sends its console output there, because KiCad would otherwise show
 it as an error.
