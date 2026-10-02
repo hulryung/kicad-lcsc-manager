@@ -26,6 +26,27 @@
       },
       "versions": [
         {
+          "version": "1.9.2",
+          "status": "stable",
+          "runtime": "ipc",
+          "kicad_version": "10.99",
+          "download_url": "https://github.com/hulryung/kicad-lcsc-manager/releases/download/v0.9.2/kicad-lcsc-manager-1.9.2-ipc.zip",
+          "download_sha256": "8d21ebd099a1d103c338d54b4cd942f8865e7c0cdc5c146297794eb69b62d01c",
+          "download_size": 586458,
+          "install_size": 1873450
+        },
+        {
+          "version": "0.9.2",
+          "status": "stable",
+          "runtime": "swig",
+          "kicad_version": "9.0",
+          "kicad_version_max": "10.99",
+          "download_url": "https://github.com/hulryung/kicad-lcsc-manager/releases/download/v0.9.2/kicad-lcsc-manager-0.9.2.zip",
+          "download_sha256": "b452dba80678c8dc666d63822e3441086bcd99c56dac237e57077d8fe14f318e",
+          "download_size": 585638,
+          "install_size": 1872323
+        },
+        {
           "version": "1.9.1",
           "status": "stable",
           "runtime": "ipc",
