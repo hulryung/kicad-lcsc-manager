@@ -31,15 +31,19 @@ mkdir -p "$LIB_DIR"
 # KiCad 9 install; see issue #15). All of these ship universal wheels, so
 # --only-binary is safe. Bump MIN_PYTHON only when the oldest supported
 # KiCad's bundled Python moves up.
+#
+# The versions are pinned in bundled-requirements.txt, so a release contains
+# what was tested rather than whatever is newest on the day it is built.
 MIN_PYTHON="3.9"
-echo "Installing requests and dependencies (resolved for Python $MIN_PYTHON)..."
+REQUIREMENTS="$SCRIPT_DIR/bundled-requirements.txt"
+echo "Installing the pinned dependencies (for Python $MIN_PYTHON)..."
 python3 -m pip install \
     --target "$LIB_DIR" \
     --no-deps \
     --upgrade \
     --python-version "$MIN_PYTHON" \
     --only-binary=:all: \
-    requests certifi charset-normalizer idna urllib3
+    -r "$REQUIREMENTS"
 
 # Clean up unnecessary files
 echo ""
@@ -53,6 +57,10 @@ find "$LIB_DIR" -type f -name "*.pyc" -delete
 
 # Remove dist-info directories
 find "$LIB_DIR" -type d -name "*.dist-info" -exec rm -rf {} + 2>/dev/null || true
+
+# Remove console scripts (idna, normalizer): nothing runs them, and their
+# first line holds the path of the Python that built the package.
+rm -rf "$LIB_DIR/bin"
 
 # Remove .so files (binary extensions we don't need)
 find "$LIB_DIR" -type f -name "*.so" -delete 2>/dev/null || true

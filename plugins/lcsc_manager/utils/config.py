@@ -141,8 +141,6 @@ class Config:
         "shared_footprint_lib_nickname": "lcsc_shared_footprints",
         "api_timeout": 30,
         "download_timeout": 60,
-        "cache_enabled": True,
-        "cache_expiry_days": 7,
     }
 
     def __init__(self, config_path: Optional[Path] = None):

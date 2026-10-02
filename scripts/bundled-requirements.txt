@@ -1,0 +1,14 @@
+# The libraries shipped inside the plugin (plugins/lcsc_manager/lib/), with
+# exact versions, so that a release contains what was tested. Before this
+# file each release bundled whatever was newest that day, which is how
+# urllib3 2.7.0 (Python >= 3.10 only) once broke every KiCad 9 install (#15).
+#
+# These are the versions v0.9.2 shipped with. To update: raise a pin, run
+# scripts/bundle-dependencies.sh, then scripts/run-tests.py; the bundled-lib
+# test imports the stack under KiCad's own Python 3.9. certifi carries the CA
+# certificates, so it is the one worth raising now and then.
+requests==2.32.5
+urllib3==2.6.3
+certifi==2026.7.22
+charset-normalizer==3.5.2
+idna==3.20

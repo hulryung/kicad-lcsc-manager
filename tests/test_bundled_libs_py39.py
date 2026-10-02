@@ -68,6 +68,40 @@ def test_bundler_pins_python_version():
     print("test_bundler_pins_python_version: PASS")
 
 
+def test_bundled_versions_are_pinned():
+    """A release must contain what was tested, not whatever was newest on
+    the day it was built."""
+    import re
+    pins = {}
+    for line in (REPO / "scripts" / "bundled-requirements.txt").read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([0-9][0-9A-Za-z.]*)", line)
+            assert match, f"not an exact pin: {line}"
+            pins[match.group(1).lower().replace("-", "_")] = match.group(2)
+    assert set(pins) == {"requests", "urllib3", "certifi", "charset_normalizer", "idna"}, pins
+    script = (REPO / "scripts" / "bundle-dependencies.sh").read_text(encoding="utf-8")
+    assert "-r \"$REQUIREMENTS\"" in script and "bundled-requirements.txt" in script
+    assert 'rm -rf "$LIB_DIR/bin"' in script
+    # What's in lib/ right now is what the pins say.
+    def numbers(version):
+        return [int(part) for part in version.split(".")]
+    code = (f"import sys, json; sys.path.insert(0, {str(LIB)!r}); "
+            "import requests, urllib3, certifi, idna, charset_normalizer as cn; "
+            "print(json.dumps({'requests': requests.__version__, 'urllib3': urllib3.__version__, "
+            "'certifi': certifi.__version__, 'idna': idna.__version__, "
+            "'charset_normalizer': cn.__version__}))")
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    import json
+    bundled = json.loads(result.stdout)
+    for package, wanted in pins.items():
+        assert numbers(bundled[package]) == numbers(wanted), \
+            f"lib/{package} is {bundled[package]}, pinned {wanted}: re-run bundle-dependencies.sh"
+    assert not (LIB / "bin").exists()
+    print("test_bundled_versions_are_pinned: PASS")
+
+
 def test_bundled_stack_imports_on_kicad_python():
     """Import the bundled requests stack with KiCad's own (3.9) Python."""
     if not KICAD_PYTHON.exists():
@@ -92,5 +126,6 @@ if __name__ == "__main__":
     test_bundled_urllib3_supports_py39()
     test_bundled_requests_supports_py39()
     test_bundler_pins_python_version()
+    test_bundled_versions_are_pinned()
     test_bundled_stack_imports_on_kicad_python()
     print("\nAll bundled-lib tests passed.")

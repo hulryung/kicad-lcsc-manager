@@ -105,8 +105,6 @@ class LCSCAPIClient:
 
     # API Endpoints
     JLCPCB_SEARCH_URL = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList"
-    EASYEDA_COMPONENT_URL = "https://easyeda.com/api/components/{uid}"
-    EASYEDA_SEARCH_URL = "https://easyeda.com/api/components/search"
 
     # Rate limiting: a minimum gap between requests to the same host. Each
     # host has its own clock, so fetching a part's EasyEDA data and its
@@ -541,115 +539,6 @@ class LCSCAPIClient:
             logger.error(f"Search failed for {lcsc_id}: {e}")
             raise LCSCAPIError(f"Search failed: {e}")
 
-    def _get_component_details_from_uuid(self, component_uuid: str) -> Optional[Dict[str, Any]]:
-        """
-        Get detailed component information from EasyEDA using component UUID
-
-        Args:
-            component_uuid: EasyEDA component UUID
-
-        Returns:
-            Dictionary with detailed component info or None
-        """
-        try:
-            url = f"https://easyeda.com/api/components/{component_uuid}"
-
-            response = self._make_request(method="GET", url=url, params=None)
-
-            if response.get("success"):
-                result = response.get("result", {})
-
-                # Extract component details
-                title = result.get("title", "")
-                dataStr = result.get("dataStr", {})
-                head = dataStr.get("head", {})
-                c_para = head.get("c_para", {})
-
-                # Get package info (try multiple fields)
-                package = c_para.get("package") or \
-                         result.get("packageDetail", {}).get("package") or \
-                         c_para.get("pre", {}).get("package", "Unknown")
-
-                manufacturer = c_para.get("Manufacturer", "Unknown")
-                datasheet = c_para.get("link", "")
-
-                # Build detailed info
-                detail_data = {
-                    "name": title or "Unknown",
-                    "manufacturer": manufacturer,
-                    "package": package,
-                    "datasheet": datasheet,
-                }
-
-                # Try to extract description
-                if c_para.get("Supplier Part"):
-                    detail_data["description"] = f"{title} - {c_para.get('Supplier Part')}"
-                else:
-                    detail_data["description"] = title or "Electronic Component"
-
-                return detail_data
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Failed to get component details from UUID {component_uuid}: {e}")
-            return None
-
-    def _parse_lcsc_component(self, product: Dict) -> Dict[str, Any]:
-        """
-        Parse LCSC product data into standardized format
-
-        Args:
-            product: Raw product data from LCSC API
-
-        Returns:
-            Standardized component data
-        """
-        return {
-            "lcsc_id": product.get("productCode"),
-            "name": product.get("productModel"),
-            "description": product.get("productIntroEn") or product.get("productDescEn", ""),
-            "manufacturer": product.get("brandNameEn"),
-            "package": product.get("encapStandard"),
-            "price": product.get("productPriceList", []),
-            "stock": product.get("stockNumber", 0),
-            "datasheet": product.get("pdfUrl"),
-            "image": product.get("productImage"),
-            "category": product.get("parentCatalogName"),
-            "subcategory": product.get("catalogName"),
-            # EasyEDA specific fields (if available)
-            "easyeda_uuid": product.get("uuid"),
-        }
-
-    def get_easyeda_component(self, uuid: str) -> Optional[Dict[str, Any]]:
-        """
-        Get component data from EasyEDA by UUID
-
-        Args:
-            uuid: EasyEDA component UUID
-
-        Returns:
-            Component data with symbol, footprint, and 3D model info
-
-        Raises:
-            LCSCAPIError: If request fails
-        """
-        logger.info(f"Fetching EasyEDA component: {uuid}")
-
-        try:
-            url = self.EASYEDA_COMPONENT_URL.format(uid=uuid)
-            response = self._make_request(method="GET", url=url)
-
-            if response.get("success"):
-                return response.get("result")
-
-            logger.warning(f"EasyEDA component not found: {uuid}")
-            return None
-
-        except Exception as e:
-            logger.error(f"Failed to fetch EasyEDA component {uuid}: {e}")
-            raise LCSCAPIError(f"EasyEDA fetch failed: {e}")
-
     def advanced_search(
         self,
         component_name: str = "",
@@ -695,81 +584,6 @@ class LCSCAPIClient:
 
         # Use JLCPCB search API
         return self.search_jlcpcb(query, page)
-
-    def search_easyeda(self, query: str, page: int = 1) -> List[Dict[str, Any]]:
-        """
-        Search for components on EasyEDA
-
-        Args:
-            query: Search query
-            page: Page number (default: 1)
-
-        Returns:
-            List of component data dictionaries
-
-        Raises:
-            LCSCAPIError: If search fails
-        """
-        logger.info(f"Searching EasyEDA: {query}, page {page}")
-
-        try:
-            response = self._make_request(
-                method="GET",
-                url=self.EASYEDA_SEARCH_URL,
-                params={
-                    "keyword": query,
-                    "page": page
-                }
-            )
-
-            if response.get("success"):
-                return response.get("result", [])
-
-            return []
-
-        except Exception as e:
-            logger.error(f"EasyEDA search failed for '{query}': {e}")
-            raise LCSCAPIError(f"EasyEDA search failed: {e}")
-
-    def download_file(self, url: str, output_path: Path) -> bool:
-        """
-        Download a file from URL to local path
-
-        Args:
-            url: File URL
-            output_path: Local file path to save to
-
-        Returns:
-            True if successful, False otherwise
-        """
-        logger.info(f"Downloading: {url} -> {output_path}")
-
-        session = None
-        try:
-            self._rate_limit()
-
-            timeout = self.config.get("download_timeout", 60)
-            session = self._get_session()
-            response = session.get(url, timeout=timeout, stream=True)
-            response.raise_for_status()
-
-            # Create parent directory if needed
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Write file
-            with open(output_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-
-            logger.info(f"Downloaded successfully: {output_path}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Download failed: {e}")
-            return False
-        finally:
-            if session:
-                session.close()
 
     def get_component_complete(self, lcsc_id: str) -> Optional[Dict[str, Any]]:
         """

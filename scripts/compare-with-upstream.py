@@ -4,7 +4,7 @@ specific component. Runs symbol, footprint, and 3D model through both
 pipelines on the same raw EasyEDA JSON.
 
 Usage:
-    python3 tests/test_full_pipeline_vs_upstream.py [LCSC_ID]
+    python3 scripts/compare-with-upstream.py [LCSC_ID]
 
 Default LCSC ID: C2040 (Raspberry Pi RP2040).
 
@@ -14,7 +14,7 @@ Requires the *external* upstream package to be importable for symbol +
 3D comparison, since we only vendor the footprint subset. Either pip
 install easyeda2kicad, or point PYTHONPATH at a clone:
 
-    PYTHONPATH=/tmp/easyeda2kicad python3 tests/test_full_pipeline_vs_upstream.py
+    PYTHONPATH=/tmp/easyeda2kicad python3 scripts/compare-with-upstream.py
 """
 import argparse
 import difflib

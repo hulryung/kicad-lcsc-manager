@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **CI.** `.github/workflows/tests.yml` runs the tests on every push and pull request, on Python 3.9 (what KiCad 9 and 10 bundle) and a current Python. The release workflow now runs them too before it builds anything, so a release can't be made from a tree whose tests fail. Until now tests only ran on the maintainer's machine.
+- `scripts/run-tests.py`: one command for the whole suite (`--network` adds the two tests that import real parts; a word filters by file name).
+- Tests that the hash in `repository.json` matches `packages.json` (KiCad rejects the repository otherwise), that the package fields agree between `metadata.json` and `packages.json`, that the bundled libraries are the pinned versions, and that a package with `lib/bin/` is refused.
+
+### Changed
+- **The bundled libraries are pinned** (`scripts/bundled-requirements.txt`: requests 2.32.5, urllib3 2.6.3, certifi 2026.7.22, charset-normalizer 3.5.2, idna 3.20, which is what 0.9.2 shipped). Each release used to bundle whatever was newest that day; that is how urllib3 2.7.0 broke KiCad 9 installs in [#15](https://github.com/hulryung/kicad-lcsc-manager/issues/15).
+- **Plugin and Content Manager listing:** the description now mentions search, previews, BOM import, the shared library and KiCad 11, and the package has tags (`lcsc`, `jlcpcb`, `easyeda`, …) for the PCM's search.
+- 3D model downloads use the `download_timeout` setting (60 s by default) instead of a fixed 30 s.
+
+### Removed
+- **Code nothing called:** `api/jlcpcb_api.py` (a second JLCPCB client; the one in use is in `lcsc_api.py`), five methods of the API client, four of the 3D converter, and the `cache_enabled` / `cache_expiry_days` settings, which nothing read. About 640 lines.
+- **Nine scripts in `tests/` that only printed API responses** and asserted nothing (January's exploration). `tests/README.md` described only those; it now describes the real suite. The converter-vs-upstream diff tool moved to `scripts/compare-with-upstream.py`.
+- From the packages: `lib/bin/` (console scripts carrying the build machine's Python path) and an outdated `plugin_resources/README.md`.
+
 ## [0.9.2] - 2026-10-02
 
 Published as **0.9.2** (KiCad 9 and 10) and **1.9.2** (KiCad 11).

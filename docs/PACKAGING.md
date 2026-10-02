@@ -435,6 +435,10 @@ or `"ipc"`, so each KiCad offers exactly one of them.
 ### Workflow Features
 
 - Triggered by `v*.*.*` tags; one release runs at a time
+- Runs the test suite (`scripts/run-tests.py`) before building; a failing
+  test stops the release
+- Bundles the dependency versions pinned in
+  `scripts/bundled-requirements.txt`, so a release contains what was tested
 - Excludes `__pycache__` and `.pyc` files, and fails if any slip into a ZIP
 - Checks each ZIP: bundled dependencies present, the right `metadata.json`
   and `__version__`, and `plugin.json`, `requirements.txt` and the files

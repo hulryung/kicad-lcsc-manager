@@ -47,6 +47,10 @@ jobs:
           chmod +x scripts/bundle-dependencies.sh
           ./scripts/bundle-dependencies.sh
 
+      # A release is only built from a tree whose tests pass.
+      - name: Run tests
+        run: python3 scripts/run-tests.py
+
       # Two zips per release, one version entry each (scripts/pcm_builds.py):
       # the SWIG build X.Y.Z for KiCad 9/10 and the IPC build (X+1).Y.Z for
       # KiCad 11. The script checks each zip (no bytecode, the right

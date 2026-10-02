@@ -11,7 +11,8 @@ import re
 import textwrap
 import requests
 from ..utils.logger import get_logger
-from ..api.lcsc_api import ca_bundle, get_api_client
+from ..api.lcsc_api import ca_bundle
+from ..utils.config import get_config
 
 logger = get_logger()
 
@@ -26,88 +27,8 @@ class Model3DConverter:
     def __init__(self):
         """Initialize 3D model converter"""
         self.logger = get_logger("model_3d_converter")
-        self.api_client = get_api_client()
-
-    def download_model(
-        self,
-        model_url: str,
-        output_path: Path,
-        model_format: str = "step"
-    ) -> bool:
-        """
-        Download 3D model from URL
-
-        Args:
-            model_url: URL to 3D model file
-            output_path: Local path to save model
-            model_format: Model format (step, wrl, etc.)
-
-        Returns:
-            True if successful
-
-        Raises:
-            IOError: If download fails
-        """
-        self.logger.info(f"Downloading 3D model: {model_url}")
-
-        try:
-            # Ensure correct extension
-            if not output_path.suffix:
-                output_path = output_path.with_suffix(f".{model_format}")
-
-            # Download using API client
-            success = self.api_client.download_file(model_url, output_path)
-
-            if success:
-                self.logger.info(f"3D model downloaded: {output_path}")
-                return True
-            else:
-                self.logger.error(f"Failed to download 3D model")
-                return False
-
-        except Exception as e:
-            self.logger.error(f"3D model download failed: {e}", exc_info=True)
-            raise IOError(f"Failed to download 3D model: {e}")
-
-    def convert_model(
-        self,
-        input_path: Path,
-        output_format: str = "step"
-    ) -> Optional[Path]:
-        """
-        Convert 3D model to different format
-
-        Args:
-            input_path: Path to input model file
-            output_format: Desired output format (step, wrl)
-
-        Returns:
-            Path to converted model or None if conversion not needed/failed
-
-        Note:
-            Full 3D model conversion requires external tools (e.g., FreeCAD)
-            For now, this is a placeholder that will be implemented later
-        """
-        self.logger.info(f"Converting 3D model: {input_path} -> {output_format}")
-
-        try:
-            # Check if conversion is needed
-            if input_path.suffix.lower().lstrip('.') == output_format.lower():
-                self.logger.info("No conversion needed")
-                return input_path
-
-            # TODO: Implement actual conversion
-            # This would require:
-            # 1. FreeCAD Python API for STEP/VRML conversion
-            # 2. Or external tool invocation
-            # 3. Or format-specific conversion libraries
-
-            self.logger.warning("3D model conversion not yet implemented")
-            return None
-
-        except Exception as e:
-            self.logger.error(f"3D model conversion failed: {e}", exc_info=True)
-            return None
+        # Seconds to wait for a model file ("download_timeout" setting).
+        self.timeout = get_config().get("download_timeout", 60)
 
     def process_component_model(
         self,
@@ -203,68 +124,6 @@ class Model3DConverter:
             self.logger.error(f"3D model processing failed: {e}", exc_info=True)
             raise IOError(f"Failed to process 3D models: {e}")
 
-    def _extract_3d_model_uuid(self, easyeda_data: Dict[str, Any]) -> Optional[str]:
-        """
-        Extract 3D model UUID from EasyEDA packageDetail data
-
-        The UUID is stored in a SVGNODE element within the shape array
-
-        Args:
-            easyeda_data: EasyEDA component data
-
-        Returns:
-            UUID string or None if not found
-        """
-        try:
-            # Navigate to packageDetail.dataStr.shape
-            if "packageDetail" not in easyeda_data:
-                self.logger.debug("No packageDetail in EasyEDA data")
-                return None
-
-            package_detail = easyeda_data["packageDetail"]
-            if "dataStr" not in package_detail:
-                self.logger.debug("No dataStr in packageDetail")
-                return None
-
-            data_str = package_detail["dataStr"]
-            if "shape" not in data_str:
-                self.logger.debug("No shape in dataStr")
-                return None
-
-            shape_array = data_str["shape"]
-
-            # Find SVGNODE element containing 3D model info
-            for line in shape_array:
-                if not isinstance(line, str):
-                    continue
-
-                parts = line.split("~")
-                if len(parts) < 2:
-                    continue
-
-                designator = parts[0]
-                if designator == "SVGNODE":
-                    # Parse JSON from second part
-                    try:
-                        raw_json = parts[1]
-                        svg_data = json.loads(raw_json)
-
-                        # Extract UUID from attrs
-                        if "attrs" in svg_data and "uuid" in svg_data["attrs"]:
-                            uuid = svg_data["attrs"]["uuid"]
-                            self.logger.info(f"Found 3D model UUID: {uuid}")
-                            return uuid
-                    except json.JSONDecodeError as e:
-                        self.logger.warning(f"Failed to parse SVGNODE JSON: {e}")
-                        continue
-
-            self.logger.debug("No SVGNODE with 3D model UUID found")
-            return None
-
-        except Exception as e:
-            self.logger.error(f"Error extracting 3D model UUID: {e}", exc_info=True)
-            return None
-
     def _extract_3d_model_info(
         self, easyeda_data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
@@ -352,31 +211,6 @@ class Model3DConverter:
             self.logger.error(f"Error extracting 3D model info: {e}", exc_info=True)
             return None
 
-    def _extract_model_urls(self, easyeda_data: Dict[str, Any]) -> Dict[str, str]:
-        """
-        Extract 3D model URLs from EasyEDA data
-
-        Args:
-            easyeda_data: EasyEDA component data
-
-        Returns:
-            Dictionary mapping format to URL
-        """
-        model_urls = {}
-
-        # Extract UUID from SVGNODE
-        uuid = self._extract_3d_model_uuid(easyeda_data)
-
-        if uuid:
-            # Build URLs using the UUID
-            model_urls["obj"] = ENDPOINT_3D_MODEL_OBJ.format(uuid=uuid)
-            model_urls["step"] = ENDPOINT_3D_MODEL_STEP.format(uuid=uuid)
-            self.logger.info(f"Generated 3D model URLs from UUID: {uuid}")
-        else:
-            self.logger.warning("No 3D model UUID found in EasyEDA data")
-
-        return model_urls
-
     def _download_obj(self, url: str) -> Optional[str]:
         """
         Download OBJ file from EasyEDA
@@ -392,7 +226,7 @@ class Model3DConverter:
             response = requests.get(
                 url,
                 headers={"User-Agent": "kicad-lcsc-manager"},
-                timeout=30,
+                timeout=self.timeout,
                 # The same CA bundle as the API calls. Without it these
                 # downloads could fail on certificates where the rest
                 # worked, leaving a placeholder box as the 3D model.
@@ -424,7 +258,7 @@ class Model3DConverter:
             response = requests.get(
                 url,
                 headers={"User-Agent": "kicad-lcsc-manager"},
-                timeout=30,
+                timeout=self.timeout,
                 # The same CA bundle as the API calls. Without it these
                 # downloads could fail on certificates where the rest
                 # worked, leaving a placeholder box as the 3D model.

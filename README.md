@@ -274,9 +274,11 @@ kicad-lcsc-manager/
 ```
 
 - `./scripts/bundle-dependencies.sh` fills `plugins/lcsc_manager/lib/`, which
-  the plugin needs to run.
-- Tests are plain scripts: `python3 tests/test_<name>.py`. [TESTING.md](TESTING.md)
-  covers the headless checks against KiCad and how to try the KiCad 11 build.
+  the plugin needs to run, with the versions pinned in
+  `scripts/bundled-requirements.txt`.
+- `python3 scripts/run-tests.py` runs the tests; CI runs it on every push.
+  [TESTING.md](TESTING.md) covers the headless checks against KiCad and how
+  to try the KiCad 11 build.
 - A `vX.Y.Z` tag releases both builds; see [docs/PACKAGING.md](docs/PACKAGING.md).
   `./scripts/package.sh X.Y.Z` builds the same packages locally.
 
