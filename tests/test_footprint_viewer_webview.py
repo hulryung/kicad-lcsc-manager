@@ -54,7 +54,9 @@ SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="13mm" height="12mm" viewB
        '<rect x="3978.15" y="3006.89" width="12.2" height="12.2" fill="#f00"/></svg>')
 
 SCRIPT = """
-import json, sys, time, tempfile, os
+import json, sys, time, tempfile, os, faulthandler
+faulthandler.dump_traceback_later(200, exit=True)     # where it hangs, if it hangs
+print("STAGE start", flush=True)
 from pathlib import Path
 sys.path.insert(0, {plugins!r})
 import wx
@@ -87,6 +89,7 @@ from lcsc_manager.dialog_footprint_detail import FootprintDetailDialog
 
 data = {{"easyeda_data": {{"packageDetail": {{"dataStr": {{
     "head": {{"x": 3984.252, "y": 3012.9925}}, "shape": {pads!r} + [{svgnode!r}]}}}}}}}}
+print("STAGE imports done", flush=True)
 d = FootprintDetailDialog(None, "C1", "TEST", {svg!r},
                           {{"x": 3968, "y": 2997.8, "width": 31.4, "height": 30.3}},
                           component_data=data, mesh_cache={{}})
@@ -104,7 +107,9 @@ if d.webview is None:
     print("RESULT " + json.dumps(out)); sys.exit(0)
 for name in ("EVT_WEBVIEW_LOADED", "EVT_WEBVIEW_ERROR", "EVT_WEBVIEW_NAVIGATED"):
     d.webview.Bind(getattr(html2, name), lambda e, n=name: (out["events"].append(n + " " + e.GetURL()[:60] + " " + e.GetString()[:120]), e.Skip()))
+print("STAGE dialog built", flush=True)
 d.Show()
+print("STAGE shown", flush=True)
 
 def pump(sec):
     # Dispatch window messages for `sec` seconds: WebView2's asynchronous
@@ -219,7 +224,7 @@ def _run_viewer(python, backend=None):
     # and C:\Program Files\KiCad is not writable.
     env.setdefault("WEBVIEW2_USER_DATA_FOLDER", tempfile.mkdtemp(prefix="webview2-"))
     try:
-        run = subprocess.run([str(python), "-c", textwrap.dedent(code), *no_window_restore()],
+        run = subprocess.run([str(python), "-u", "-c", textwrap.dedent(code), *no_window_restore()],
                              env=env, capture_output=True, encoding="utf-8", errors="replace",
                              timeout=240)
     except subprocess.TimeoutExpired as e:
