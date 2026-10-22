@@ -298,7 +298,11 @@ def _check_viewer(out, need_webgl):
     print("  3D:", v3)
     assert v3["status"] == "ready"
     if need_webgl or (v3.get("gl") and v3.get("mesh")):
-        assert v3["gl"] and v3["mesh"] and v3["parts"] == 1 and v3["tex"], v3
+        assert v3["gl"] and v3["mesh"] and v3["parts"] == 1, v3
+        if need_webgl:
+            assert v3["tex"], v3
+        elif not v3["tex"]:
+            print("  (no footprint texture on this engine; the plane is drawn plain)")
         # The 2 mm cube sits at the centre of the view, so the middle pixel
         # is its blue-ish top, lit, not the grey background.
         r, g, b = v3["centre"]

@@ -388,7 +388,9 @@ var DATA = /*__DATA__*/null;
     var pos = [e.x0, e.y0, z, e.x1, e.y0, z, e.x1, e.y1, z, e.x0, e.y0, z, e.x1, e.y1, z, e.x0, e.y1, z];
     var uv = [0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0];
     var nrm = [], col = [];
-    for (var i = 0; i < 6; i++) { nrm.push(0, 0, 1); col.push(1, 1, 1, 1); }
+    // The colour shows when the drawing can't be used as a texture (IE
+    // taints a canvas an SVG was drawn on): a plain board-green plane.
+    for (var i = 0; i < 6; i++) { nrm.push(0, 0, 1); col.push(0.18, 0.42, 0.31, 1); }
     fpQuad = { p: buffer(pos, 3, prog.p), n: buffer(nrm, 3, prog.n), c: buffer(col, 4, prog.c), t: buffer(uv, 2, prog.t) };
   }
 
@@ -415,6 +417,7 @@ var DATA = /*__DATA__*/null;
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       draw3d();
     };
+    img.onerror = function () { fpTex = null; draw3d(); };
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(outer);
   }
 
@@ -509,8 +512,9 @@ var DATA = /*__DATA__*/null;
     var p = perspective(cam.fov * Math.PI / 180, canvas.width / canvas.height, cam.dist * 0.01, cam.dist * 10);
     var mvp = mul(p, mv);
     gl.uniformMatrix4fv(prog.mvp, false, new Float32Array(mvp)); gl.uniformMatrix4fv(prog.mv, false, new Float32Array(mv));
-    if ($('cfp').checked && fpQuad && fpTex) {
-      gl.uniform1f(prog.useTex, 1); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fpTex); gl.uniform1i(prog.tex, 0);
+    if ($('cfp').checked && fpQuad) {
+      if (fpTex) { gl.uniform1f(prog.useTex, 1); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fpTex); gl.uniform1i(prog.tex, 0); }
+      else gl.uniform1f(prog.useTex, 0);
       bind(fpQuad.p); bind(fpQuad.n); bind(fpQuad.c); bind(fpQuad.t);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
