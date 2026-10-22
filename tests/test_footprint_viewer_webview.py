@@ -156,12 +156,20 @@ def shot(name):
     if not folder: return
     d.Raise(); pump(0.7)
     r = d.GetScreenRect()
+    before = len(col.msgs)
     try:
-        bmp = wx.ScreenDC().GetAsBitmap().GetSubBitmap(wx.Rect(r.x, r.y, r.width, r.height))
+        # Blit from the screen: ScreenDC.GetAsBitmap() is not valid on Windows.
+        bmp = wx.Bitmap(r.width, r.height)
+        mem = wx.MemoryDC(bmp)
+        mem.Blit(0, 0, r.width, r.height, wx.ScreenDC(), r.x, r.y)
+        mem.SelectObject(wx.NullBitmap)
         Path(folder).mkdir(parents=True, exist_ok=True)
         bmp.SaveFile(str(Path(folder) / name), wx.BITMAP_TYPE_PNG)
     except Exception as e:
         out.setdefault("shot_errors", []).append(str(e))
+    # A screenshot that cannot be taken is not a dialog problem.
+    out.setdefault("shot_asserts", []).extend(col.msgs[before:])
+    del col.msgs[before:]
 
 pump(1.0)
 try:
