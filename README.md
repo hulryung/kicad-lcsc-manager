@@ -18,6 +18,10 @@ What changed in each release: [CHANGELOG.md](CHANGELOG.md) and the
 - **Preview** before importing: EasyEDA's own symbol and footprint drawings,
   plus a specifications tab with the part's parameters, datasheet and LCSC
   product page. Previews load in the background, so you can keep browsing.
+- **Inspect the footprint** in its own window: zoom in, measure the distance
+  between any two points (snapping to pad centres and corners), read pad
+  sizes on hover, and stand the part's 3D model on the footprint to check
+  that the two line up.
 - **Import** the symbol, the footprint and the 3D model (STEP and WRL, linked
   from the footprint). The libraries are added to KiCad's library tables for
   you.
@@ -93,11 +97,6 @@ Open a **saved** project, then:
 1. Type a part name, value or LCSC number and press **Enter**. Add a package
    (`0603`, `SOT23`, `LQFP`) to narrow the results.
 2. Select a result to see its symbol, footprint and specifications.
-   **Details…** under the footprint opens it in a larger window: zoom and
-   pan, a 0.1–1 mm grid, and **Measure** for the distance between any two
-   points (they snap to pad centres and corners). Hovering a pad shows its
-   number, size and position. The **3D** button stands the part's EasyEDA
-   model on the footprint, to check that the two line up before importing.
 3. Choose what to import (symbol, footprint, 3D model) and click
    **Import Selected**.
 4. Search and import as many parts as you like; click **Close** when done.
@@ -119,6 +118,30 @@ when that's the case:
   footprint library, reopen the project (or restart KiCad) before placing
   them. KiCad 9 picks it up straight away.
 - **Shared library folder:** restart KiCad once after the first import.
+
+### Inspecting a footprint
+
+**Details…** under the footprint preview opens it in a larger window.
+
+![Measuring on the footprint](docs/images/footprint-details-measure.png)
+
+- **Zoom and pan** with the wheel and the mouse; a 0.1–1 mm grid follows the
+  zoom, with the footprint's origin marked. Hovering a pad shows its number,
+  size and position.
+- **Measure:** click two points to get the distance, Δx and Δy, in mm or
+  mil. Points snap to pad centres and corners, so pitch, pad size and
+  clearance come out exact. Esc clears.
+- **3D:** the part's EasyEDA model standing on the footprint, placed the way
+  the import places it, so a model that is offset or rotated against the
+  pads shows up before you import. Drag to orbit, wheel to zoom; Top, Iso
+  and Fit reset the view, and the footprint and the model can be hidden
+  separately.
+
+![The 3D model on the footprint](docs/images/footprint-details-3d.png)
+
+The window uses the same WebView as the previews. The 3D view needs WebGL:
+on Windows that is the Edge (WebView2) engine, which Windows 10 and 11
+normally have.
 
 ### Importing a BOM
 
