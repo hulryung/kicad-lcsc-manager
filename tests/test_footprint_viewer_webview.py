@@ -77,9 +77,19 @@ data = {{"easyeda_data": {{"packageDetail": {{"dataStr": {{
 d = FootprintDetailDialog(None, "C1", "TEST", {svg!r},
                           {{"x": 3968, "y": 2997.8, "width": 31.4, "height": 30.3}},
                           component_data=data, mesh_cache={{}})
-out = {{"webview": d.webview is not None}}
+out = {{"webview": d.webview is not None, "wx": wx.version(), "events": []}}
+try:
+    import wx.html2 as html2
+    out["backends"] = {{name: bool(html2.WebView.IsBackendAvailable(getattr(html2, name)))
+                       for name in ("WebViewBackendEdge", "WebViewBackendIE", "WebViewBackendWebKit")
+                       if hasattr(html2, name)}}
+    out["html2_dir"] = sorted(p.name for p in Path(html2.__file__).parent.glob("*ebView2*"))
+except Exception as e:
+    out["backends"] = str(e)
 if d.webview is None:
-    print(json.dumps(out)); sys.exit(0)
+    print("RESULT " + json.dumps(out)); sys.exit(0)
+for name in ("EVT_WEBVIEW_LOADED", "EVT_WEBVIEW_ERROR", "EVT_WEBVIEW_NAVIGATED"):
+    d.webview.Bind(getattr(html2, name), lambda e, n=name: (out["events"].append(n + " " + e.GetURL()[:60] + " " + e.GetString()[:120]), e.Skip()))
 d.Show()
 
 def pump(sec):
@@ -116,6 +126,9 @@ for _ in range(600):
         break
 out["runscript"] = bool(ok)
 out["loaded"] = json.loads(val) if ok and val and val != "null" else None
+out["runscript_raw"] = repr(d.webview.RunScript("1+1"))
+out["ready_state"] = repr(d.webview.RunScript("document.readyState + ' ' + (typeof DATA) + ' ' + document.title"))
+out["url"] = d.webview.GetCurrentURL()
 
 measure = '''(function(){{
   var svg = document.querySelector('#view2d svg.world');
@@ -155,11 +168,15 @@ def test_footprint_viewer_in_a_real_webview():
     line = [l for l in run.stdout.splitlines() if l.startswith("RESULT ")]
     assert line, run.stdout[-1500:] + run.stderr[-1500:]
     out = json.loads(line[-1][len("RESULT "):])
+    print("  wx:", out.get("wx"), " backends:", out.get("backends"), " loader:", out.get("html2_dir"))
     print("  engine:", out.get("user_agent"))
+    print("  page:", out.get("url"), out.get("ready_state"), " RunScript(1+1) =", out.get("runscript_raw"))
+    for e in out.get("events", []):
+        print("  event:", e)
     if not out["webview"]:
         print("test_footprint_viewer_in_a_real_webview: SKIP (no WebView backend)")
         return
-    assert out["runscript"], "RunScript is not available on this wx"
+    assert out["runscript"], "RunScript did not succeed on this engine (see the lines above)"
     loaded = out["loaded"]
     assert loaded and loaded["pads"] == 4 and loaded["snaps"] >= 12, out
     assert loaded["status"] == "ready", out            # the (stubbed) model arrived

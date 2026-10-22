@@ -75,7 +75,7 @@ def test_null_host():
         assert host.expand_path_vars(" ${LCSC_HOST_T}/lcsc ") == "/env/lcsc"
     finally:
         del os.environ["LCSC_HOST_T"]
-    assert host.expand_path_vars("~/k") == str(Path.home() / "k")
+    assert Path(host.expand_path_vars("~/k")) == Path.home() / "k"   # separators differ on Windows
     print("test_null_host: PASS")
 
 

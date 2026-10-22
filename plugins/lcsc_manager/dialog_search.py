@@ -146,17 +146,17 @@ class LCSCManagerSearchDialog(wx.Dialog):
         dest_sizer = wx.StaticBoxSizer(dest_box, wx.VERTICAL)
 
         path_row = wx.BoxSizer(wx.HORIZONTAL)
-        path_row.Add(wx.StaticText(self, label="Saving to: "), 0,
+        path_row.Add(wx.StaticText(dest_box, label="Saving to: "), 0,
                      wx.ALIGN_CENTER_VERTICAL)
-        self.dest_path_label = wx.StaticText(self, label="")
+        self.dest_path_label = wx.StaticText(dest_box, label="")
         path_row.Add(self.dest_path_label, 1,
                      wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 4)
         dest_sizer.Add(path_row, 0, wx.EXPAND | wx.ALL, 4)
 
         scope_row = wx.BoxSizer(wx.HORIZONTAL)
-        scope_row.Add(wx.StaticText(self, label="Settings source: "), 0,
+        scope_row.Add(wx.StaticText(dest_box, label="Settings source: "), 0,
                       wx.ALIGN_CENTER_VERTICAL)
-        self.dest_scope_label = wx.StaticText(self, label="")
+        self.dest_scope_label = wx.StaticText(dest_box, label="")
         scope_row.Add(self.dest_scope_label, 0,
                       wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 4)
         dest_sizer.Add(scope_row, 0, wx.EXPAND | wx.ALL, 4)
@@ -208,23 +208,24 @@ class LCSCManagerSearchDialog(wx.Dialog):
         """Create search form panel"""
         panel = wx.Panel(self)
         sizer = wx.StaticBoxSizer(wx.VERTICAL, panel, "Search Filters")
+        box = sizer.GetStaticBox()        # wx 3.3 wants the children here
 
         # Create horizontal sizer for inputs
         input_sizer = wx.FlexGridSizer(rows=1, cols=4, vgap=5, hgap=10)
         input_sizer.AddGrowableCol(1)
 
         # Search (supports name, value, LCSC ID)
-        input_sizer.Add(wx.StaticText(panel, label="Search:"),
+        input_sizer.Add(wx.StaticText(box, label="Search:"),
                        0, wx.ALIGN_CENTER_VERTICAL)
-        self.name_input = wx.TextCtrl(panel, size=(200, -1), style=wx.TE_PROCESS_ENTER)
+        self.name_input = wx.TextCtrl(box, size=(200, -1), style=wx.TE_PROCESS_ENTER)
         self.name_input.SetHint("Name, value, or LCSC ID (e.g., RP2040, 10uF, C2040)")
         self.name_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
         input_sizer.Add(self.name_input, 1, wx.EXPAND)
 
         # Package (optional)
-        input_sizer.Add(wx.StaticText(panel, label="Package:"),
+        input_sizer.Add(wx.StaticText(box, label="Package:"),
                        0, wx.ALIGN_CENTER_VERTICAL)
-        self.package_input = wx.TextCtrl(panel, size=(120, -1), style=wx.TE_PROCESS_ENTER)
+        self.package_input = wx.TextCtrl(box, size=(120, -1), style=wx.TE_PROCESS_ENTER)
         self.package_input.SetHint("e.g., 0603, SOT23, LQFN (optional)")
         self.package_input.Bind(wx.EVT_TEXT_ENTER, self._on_search)
         input_sizer.Add(self.package_input, 0, wx.EXPAND)
@@ -233,7 +234,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
 
         # Search button
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        search_btn = self.search_btn = wx.Button(panel, label="Search")
+        search_btn = self.search_btn = wx.Button(box, label="Search")
         search_btn.Bind(wx.EVT_BUTTON, self._on_search)
         # No alignment flag here: a horizontal sizer only honours vertical
         # ones, and wx asserts on wxALIGN_RIGHT. Inside pcbnew KiCad swallows
@@ -501,16 +502,17 @@ class LCSCManagerSearchDialog(wx.Dialog):
         """Create import options panel"""
         panel = wx.Panel(self)
         sizer = wx.StaticBoxSizer(wx.HORIZONTAL, panel, "Import Options")
+        box = sizer.GetStaticBox()        # wx 3.3 wants the children here
 
-        self.import_symbol_cb = wx.CheckBox(panel, label="Import Symbol")
+        self.import_symbol_cb = wx.CheckBox(box, label="Import Symbol")
         self.import_symbol_cb.SetValue(True)
         sizer.Add(self.import_symbol_cb, 0, wx.ALL, 5)
 
-        self.import_footprint_cb = wx.CheckBox(panel, label="Import Footprint")
+        self.import_footprint_cb = wx.CheckBox(box, label="Import Footprint")
         self.import_footprint_cb.SetValue(True)
         sizer.Add(self.import_footprint_cb, 0, wx.ALL, 5)
 
-        self.import_3d_cb = wx.CheckBox(panel, label="Import 3D Model")
+        self.import_3d_cb = wx.CheckBox(box, label="Import 3D Model")
         self.import_3d_cb.SetValue(True)
         sizer.Add(self.import_3d_cb, 0, wx.ALL, 5)
 

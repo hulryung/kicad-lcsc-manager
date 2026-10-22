@@ -175,7 +175,7 @@ class LCSCManagerDialog(wx.Dialog):
         search_sizer = wx.StaticBoxSizer(search_box, wx.VERTICAL)
 
         # LCSC ID input
-        lcsc_panel = wx.Panel(self)
+        lcsc_panel = wx.Panel(search_box)
         lcsc_panel_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
         lcsc_label = wx.StaticText(lcsc_panel, label="LCSC Part Number:")
@@ -207,7 +207,7 @@ class LCSCManagerDialog(wx.Dialog):
         info_sizer = wx.StaticBoxSizer(info_box, wx.VERTICAL)
 
         self.info_text = wx.TextCtrl(
-            self,
+            info_box,
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
             size=(-1, 200)
         )
@@ -221,15 +221,15 @@ class LCSCManagerDialog(wx.Dialog):
         options_box = wx.StaticBox(self, label="Import Options")
         options_sizer = wx.StaticBoxSizer(options_box, wx.VERTICAL)
 
-        self.import_symbol_cb = wx.CheckBox(self, label="Import Symbol")
+        self.import_symbol_cb = wx.CheckBox(options_box, label="Import Symbol")
         self.import_symbol_cb.SetValue(True)
         options_sizer.Add(self.import_symbol_cb, 0, wx.ALL, 5)
 
-        self.import_footprint_cb = wx.CheckBox(self, label="Import Footprint")
+        self.import_footprint_cb = wx.CheckBox(options_box, label="Import Footprint")
         self.import_footprint_cb.SetValue(True)
         options_sizer.Add(self.import_footprint_cb, 0, wx.ALL, 5)
 
-        self.import_3d_cb = wx.CheckBox(self, label="Import 3D Model")
+        self.import_3d_cb = wx.CheckBox(options_box, label="Import 3D Model")
         self.import_3d_cb.SetValue(True)
         options_sizer.Add(self.import_3d_cb, 0, wx.ALL, 5)
 

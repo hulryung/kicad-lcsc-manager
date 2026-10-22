@@ -99,9 +99,10 @@ class BomImportDialog(wx.Dialog):
 
         # Import options
         opt_box = wx.StaticBoxSizer(wx.HORIZONTAL, self, "Import")
-        self.cb_symbol = wx.CheckBox(self, label="Symbol")
-        self.cb_footprint = wx.CheckBox(self, label="Footprint")
-        self.cb_3d = wx.CheckBox(self, label="3D model")
+        box = opt_box.GetStaticBox()      # wx 3.3 wants the children here
+        self.cb_symbol = wx.CheckBox(box, label="Symbol")
+        self.cb_footprint = wx.CheckBox(box, label="Footprint")
+        self.cb_3d = wx.CheckBox(box, label="3D model")
         self.cb_symbol.SetValue(default_options[0])
         self.cb_footprint.SetValue(default_options[1])
         self.cb_3d.SetValue(default_options[2])

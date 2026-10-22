@@ -42,8 +42,12 @@ def new_webview(parent):
     try:
         if edge and wx.html2.WebView.IsBackendAvailable(edge):
             backend = edge
-    except Exception:
-        pass
+        elif hasattr(wx.html2.WebView, "MSWSetEmulationLevel"):
+            # Internet Explorer it is. Its default is IE7 emulation, where
+            # the page's JavaScript doesn't run; IE11 mode has ES5 and WebGL.
+            wx.html2.WebView.MSWSetEmulationLevel(wx.html2.WEBVIEWIE_EMU_IE11)
+    except Exception as e:
+        logger.debug(f"WebView backend choice: {e}")
     try:
         return wx.html2.WebView.New(parent, backend=backend)
     except Exception as e:

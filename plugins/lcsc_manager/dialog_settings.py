@@ -72,30 +72,30 @@ class SettingsDialog(wx.Dialog):
         muted = status_colour("muted")
 
         self.radio_loc_project = wx.RadioButton(
-            self, label="Inside each project", style=wx.RB_GROUP)
+            loc_box, label="Inside each project", style=wx.RB_GROUP)
         loc_sizer.Add(self.radio_loc_project, 0, wx.LEFT | wx.RIGHT | wx.TOP, 4)
         loc_project_hint = wx.StaticText(
-            self, label="Every project keeps its own copy under the library "
+            loc_box, label="Every project keeps its own copy under the library "
                         "root path below — easy to commit along with the project.")
         loc_project_hint.SetForegroundColour(muted)
         loc_sizer.Add(loc_project_hint, 0, wx.LEFT, 28)
 
         self.radio_loc_shared = wx.RadioButton(
-            self, label="One shared folder for all projects")
+            loc_box, label="One shared folder for all projects")
         loc_sizer.Add(self.radio_loc_shared, 0, wx.LEFT | wx.RIGHT | wx.TOP, 4)
 
         shared_row = wx.BoxSizer(wx.HORIZONTAL)
         shared_row.AddSpacer(24)  # line up under the radio label
-        self.shared_path_ctrl = wx.TextCtrl(self)
+        self.shared_path_ctrl = wx.TextCtrl(loc_box)
         self.shared_path_ctrl.SetHint("e.g. ~/KiCad/lcsc, C:\\KiCadLibs\\lcsc or ${MY_LIBS}/lcsc")
         self.shared_path_ctrl.Bind(wx.EVT_TEXT, self._on_value_change)
         shared_row.Add(self.shared_path_ctrl, 1, wx.EXPAND)
-        self.shared_browse_btn = wx.Button(self, label="Browse…")
+        self.shared_browse_btn = wx.Button(loc_box, label="Browse…")
         self.shared_browse_btn.Bind(wx.EVT_BUTTON, self._on_browse_shared)
         shared_row.Add(self.shared_browse_btn, 0, wx.LEFT, 6)
         loc_sizer.Add(shared_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
         loc_shared_hint = wx.StaticText(
-            self, label="Registered in KiCad's global library tables, so every "
+            loc_box, label="Registered in KiCad's global library tables, so every "
                         "project can use it. The folder is always saved to "
                         "Global — it is a location on this computer.")
         loc_shared_hint.SetForegroundColour(muted)
@@ -139,10 +139,10 @@ class SettingsDialog(wx.Dialog):
             ("footprint_lib", "Footprint library:"),
             ("model_3d_dir", "3D models:"),
         ):
-            title_lbl = wx.StaticText(self, label=title)
+            title_lbl = wx.StaticText(preview_box, label=title)
             title_lbl.SetMinSize((130, -1))
-            path_lbl = wx.StaticText(self, label="—")
-            status_lbl = wx.StaticText(self, label="")
+            path_lbl = wx.StaticText(preview_box, label="—")
+            status_lbl = wx.StaticText(preview_box, label="")
             status_lbl.SetMinSize((90, -1))
 
             pv_grid.Add(title_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
@@ -152,12 +152,12 @@ class SettingsDialog(wx.Dialog):
             self.preview_labels[key] = path_lbl
             self.preview_status[key] = status_lbl
 
-        reg_title = wx.StaticText(self, label="Registered in:")
+        reg_title = wx.StaticText(preview_box, label="Registered in:")
         reg_title.SetMinSize((130, -1))
-        self.registered_label = wx.StaticText(self, label="—")
+        self.registered_label = wx.StaticText(preview_box, label="—")
         pv_grid.Add(reg_title, 0, wx.ALIGN_CENTER_VERTICAL)
         pv_grid.Add(self.registered_label, 1, wx.ALIGN_CENTER_VERTICAL | wx.EXPAND)
-        pv_grid.Add(wx.StaticText(self, label=""), 0)
+        pv_grid.Add(wx.StaticText(preview_box, label=""), 0)
 
         pv_sizer.Add(pv_grid, 1, wx.EXPAND | wx.ALL, 4)
 
@@ -170,11 +170,11 @@ class SettingsDialog(wx.Dialog):
         scope_sizer = wx.StaticBoxSizer(scope_box, wx.VERTICAL)
 
         self.radio_global = wx.RadioButton(
-            self, label="Global — the default for every project",
+            scope_box, label="Global — the default for every project",
             style=wx.RB_GROUP
         )
         self.radio_project = wx.RadioButton(
-            self, label="This project only — overrides Global for this project"
+            scope_box, label="This project only — overrides Global for this project"
         )
         self.radio_global.Bind(wx.EVT_RADIOBUTTON, self._on_scope_change)
         self.radio_project.Bind(wx.EVT_RADIOBUTTON, self._on_scope_change)
@@ -188,7 +188,7 @@ class SettingsDialog(wx.Dialog):
         # Explains what a Save in the current scope will actually do for the
         # open project — above all, when a project override makes Global
         # changes have no effect here.
-        self.scope_notice = wx.StaticText(self, label="")
+        self.scope_notice = wx.StaticText(scope_box, label="")
         scope_sizer.Add(self.scope_notice, 0, wx.ALL | wx.EXPAND, 4)
         main.Add(scope_sizer, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 
