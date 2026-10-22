@@ -98,6 +98,16 @@ print('EasyEDA data:', bool(part and part.get('easyeda_data')))"
 Behind a proxy, set `HTTPS_PROXY` (and `HTTP_PROXY`) in the environment KiCad
 starts from; the plugin's HTTP library picks them up.
 
+**"Connection aborted" with "Permission denied" (errno 13)** means the
+operating system refused the socket call before anything left the machine;
+the server never saw the request. On Windows that is Windows Defender
+Firewall, or an antivirus / endpoint-security product, blocking `kicad.exe`
+(or `pcbnew.exe`) from making outbound connections. Allow KiCad through it,
+or ask whoever manages the machine. Browsers are usually allowed
+separately, so jlcpcb.com opening fine in a browser doesn't rule this out.
+On macOS the same error comes from a firewall such as Little Snitch or
+LuLu blocking KiCad. ([#21](https://github.com/hulryung/kicad-lcsc-manager/issues/21))
+
 ## Imported parts don't show up
 
 KiCad doesn't always pick up a new library at once. The dialog tells you when

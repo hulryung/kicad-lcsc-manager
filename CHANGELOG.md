@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests that the hash in `repository.json` matches `packages.json` (KiCad rejects the repository otherwise), that the package fields agree between `metadata.json` and `packages.json`, that the bundled libraries are the pinned versions, and that a package with `lib/bin/` is refused.
 
 ### Changed
+- **A search blocked by a firewall now says so.** When the operating system refuses the connection (`PermissionError(13, 'Permission denied')`, which is what Windows Defender Firewall or an antivirus blocking `kicad.exe` looks like), the error names the host and points at the firewall instead of showing the bare errno ([#21](https://github.com/hulryung/kicad-lcsc-manager/issues/21)). `docs/DEBUG.md` has the explanation.
 - **The bundled libraries are pinned** (`scripts/bundled-requirements.txt`: requests 2.32.5, urllib3 2.6.3, certifi 2026.7.22, charset-normalizer 3.5.2, idna 3.20, which is what 0.9.2 shipped). Each release used to bundle whatever was newest that day; that is how urllib3 2.7.0 broke KiCad 9 installs in [#15](https://github.com/hulryung/kicad-lcsc-manager/issues/15).
 - **Plugin and Content Manager listing:** the description now mentions search, previews, BOM import, the shared library and KiCad 11, and the package has tags (`lcsc`, `jlcpcb`, `easyeda`, …) for the PCM's search.
 - 3D model downloads use the `download_timeout` setting (60 s by default) instead of a fixed 30 s.

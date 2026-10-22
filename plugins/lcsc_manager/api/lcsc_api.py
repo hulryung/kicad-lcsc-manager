@@ -4,6 +4,7 @@ LCSC/EasyEDA API Client
 This module provides functions to search and fetch component data from LCSC/EasyEDA.
 Note: These APIs are not officially documented and were reverse-engineered.
 """
+import errno
 import glob
 import json
 import sys
@@ -87,6 +88,49 @@ class LCSCRateLimitError(LCSCAPIError):
     exhausted. A subclass of LCSCAPIError so existing handlers still catch it,
     but distinct so the UI can say "wait and retry" instead of "not found"."""
     pass
+
+
+def _os_error_in(exc: BaseException) -> Optional[OSError]:
+    """The OSError at the bottom of a requests exception, if any.
+
+    requests wraps the socket error twice: ConnectionError(ProtocolError(
+    "Connection aborted.", PermissionError(13, ...))). Walk args and the
+    cause/context chain to find it."""
+    seen = set()
+    stack = [exc]
+    while stack:
+        e = stack.pop()
+        if id(e) in seen or e is None:
+            continue
+        seen.add(id(e))
+        if isinstance(e, OSError) and e.errno is not None:
+            return e
+        for a in getattr(e, "args", ()):
+            if isinstance(a, BaseException):
+                stack.append(a)
+        stack.append(e.__cause__)
+        stack.append(e.__context__)
+    return None
+
+
+def describe_network_error(exc: BaseException, url: str) -> str:
+    """A message for the user about a failed request: what the OS said and,
+    where the cause is recognisable, what to do about it. (issue #21)"""
+    host = urlparse(url).hostname or url
+    err = _os_error_in(exc)
+    if err is not None and err.errno == errno.EACCES:
+        # On Windows this is WSAEACCES (10013): the socket call was refused
+        # by the OS itself, before anything reached the network. That is a
+        # firewall or antivirus blocking kicad.exe, not the server.
+        return (
+            f"The operating system refused to let KiCad connect to {host} "
+            "(permission denied). A firewall or antivirus program is "
+            "probably blocking KiCad's network access: allow KiCad's "
+            "programs through it, or ask your administrator. If your "
+            "network needs a proxy, set HTTPS_PROXY before starting KiCad. "
+            f"Details: {exc}"
+        )
+    return f"Network error: {exc}"
 
 
 def ca_bundle():
@@ -299,7 +343,7 @@ class LCSCAPIClient:
             raise LCSCAPIError(f"API request failed: {e}")
         except requests.exceptions.RequestException as e:
             logger.error(f"Request error: {e}")
-            raise LCSCAPIError(f"Network error: {e}")
+            raise LCSCAPIError(describe_network_error(e, url))
         except ValueError as e:
             logger.error(f"JSON decode error: {e}")
             raise LCSCAPIError(f"Invalid API response: {e}")

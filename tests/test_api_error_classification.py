@@ -20,6 +20,7 @@ from lcsc_manager.api.lcsc_api import (
     LCSCAPIClient,
     LCSCAPIError,
     LCSCRateLimitError,
+    describe_network_error,
 )
 
 
@@ -92,9 +93,57 @@ def test_genuine_missing_part_returns_none():
     print("test_genuine_missing_part_returns_none: PASS")
 
 
+def _session_refused_by_os() -> MagicMock:
+    """Mock session whose request fails the way a Windows firewall makes it
+    fail (issue #21): requests wraps WSAEACCES, which Python reports as
+    PermissionError(13), in ProtocolError then ConnectionError."""
+    import urllib3.exceptions
+    inner = PermissionError(13, "Permission denied")
+    proto = urllib3.exceptions.ProtocolError("Connection aborted.", inner)
+    sess = MagicMock()
+    sess.request.side_effect = requests.exceptions.ConnectionError(proto)
+    return sess
+
+
+def test_permission_denied_names_firewall():
+    """A socket call the OS refuses (errno 13) is explained as a firewall /
+    antivirus problem, naming the host, not left as a bare errno."""
+    client = LCSCAPIClient()
+    url = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList"
+    with patch.object(
+        LCSCAPIClient, "_get_session", return_value=_session_refused_by_os()
+    ):
+        try:
+            client._make_request("POST", url, json_data={"keyword": "C2040"})
+        except LCSCAPIError as e:
+            msg = str(e)
+            assert "jlcpcb.com" in msg, msg
+            assert "firewall" in msg.lower(), msg
+            assert "Permission denied" in msg, msg  # original detail kept
+            print("test_permission_denied_names_firewall: PASS")
+        else:
+            raise AssertionError("expected LCSCAPIError")
+
+
+def test_other_network_errors_keep_generic_wording():
+    """Only errno 13 gets the firewall explanation; a refused or reset
+    connection stays the plain 'Network error: ...'."""
+    inner = ConnectionRefusedError(111, "Connection refused")
+    exc = requests.exceptions.ConnectionError(inner)
+    msg = describe_network_error(exc, "https://easyeda.com/api/x")
+    assert msg.startswith("Network error:"), msg
+    assert "firewall" not in msg.lower(), msg
+    # And an exception with no OSError underneath at all.
+    msg = describe_network_error(requests.exceptions.ReadTimeout("slow"), "https://easyeda.com/api/x")
+    assert msg.startswith("Network error:"), msg
+    print("test_other_network_errors_keep_generic_wording: PASS")
+
+
 if __name__ == "__main__":
     test_rate_limit_is_a_subclass_of_api_error()
     test_persistent_403_raises_rate_limit_error()
     test_search_component_preserves_rate_limit_type()
     test_genuine_missing_part_returns_none()
+    test_permission_denied_names_firewall()
+    test_other_network_errors_keep_generic_wording()
     print("\nAll API error-classification tests passed.")
