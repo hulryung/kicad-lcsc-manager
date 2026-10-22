@@ -107,9 +107,10 @@ for name in ("EVT_WEBVIEW_LOADED", "EVT_WEBVIEW_ERROR", "EVT_WEBVIEW_NAVIGATED")
 d.Show()
 
 def pump(sec):
-    end = time.time() + sec
-    while time.time() < end:
-        app.Yield(); time.sleep(0.03)
+    # A real event loop for `sec` seconds, not Yield(): WebView2's
+    # asynchronous start-up completes through the message loop.
+    wx.CallLater(int(sec * 1000), app.ExitMainLoop)
+    app.MainLoop()
 
 def js(code):
     r = d.webview.RunScript(code)
@@ -163,18 +164,27 @@ ok, val = js("JSON.stringify(window.lcscDebug())"); out["view3d"] = json.loads(v
 shot("footprint-3d.png")
 out["wx_log"] = [m for m in col.msgs if "PgmOrNull" not in m]
 d.Destroy()
-if hasattr(html2, "WebViewBackendIE") and sys.platform == "win32":
-    try:
-        f = wx.Dialog(None, title="ie probe"); f.SetSize((400, 300))
-        html2.WebView.MSWSetEmulationLevel(html2.WEBVIEWIE_EMU_IE11)
-        w = html2.WebView.New(f, backend=html2.WebViewBackendIE)
-        w.SetPage("<html><body><script>document.title='t' + (1+1);</script>ok</body></html>", "")
-        f.Show(); pump(2.0)
-        out["ie_probe"] = {{"title": w.GetCurrentTitle(), "run": repr(w.RunScript("1+1")),
-                           "ua": w.GetUserAgent()[:80]}}
-        f.Destroy()
-    except Exception as e:
-        out["ie_probe"] = "error " + str(e)
+if sys.platform == "win32":
+    from lcsc_manager.utils.webview import enable_ie11_emulation, webview2_runtime_installed
+    out["webview2_runtime"] = webview2_runtime_installed()
+    for label, backend in (("ie_probe", "WebViewBackendIE"), ("edge_probe", "WebViewBackendEdge")):
+        if not hasattr(html2, backend):
+            continue
+        try:
+            if backend == "WebViewBackendIE":
+                enable_ie11_emulation()
+            f = wx.Dialog(None, title=label); f.SetSize((400, 300))
+            probe = {{"events": []}}
+            w = html2.WebView.New(f, backend=getattr(html2, backend))
+            for name in ("EVT_WEBVIEW_LOADED", "EVT_WEBVIEW_ERROR"):
+                w.Bind(getattr(html2, name), lambda e, n=name: (probe["events"].append(n + " " + e.GetString()[:160]), e.Skip()))
+            w.SetPage("<html><body><script>document.title='t' + (1+1);</script>ok</body></html>", "")
+            f.Show(); pump(4.0)
+            probe.update(title=w.GetCurrentTitle(), run=repr(w.RunScript("1+1")), ua=w.GetUserAgent()[:90])
+            out[label] = probe
+            f.Destroy()
+        except Exception as e:
+            out[label] = "error " + str(e)
 print("RESULT " + json.dumps(out))
 """
 
@@ -198,7 +208,9 @@ def _run_viewer(python, backend=None):
     assert line, run.stdout[-1500:] + run.stderr[-1500:]
     out = json.loads(line[-1][len("RESULT "):])
     print("  wx:", out.get("wx"), " backends:", out.get("backends"), " loader:", out.get("html2_dir"))
-    print("  versions:", out.get("diag"), " user data:", out.get("user_data"), " IE probe:", out.get("ie_probe"))
+    print("  runtime:", out.get("webview2_runtime"), " user data:", out.get("user_data"))
+    print("  IE probe:", out.get("ie_probe"))
+    print("  Edge probe:", out.get("edge_probe"))
     print("  engine:", out.get("user_agent"))
     print("  page:", out.get("url"), out.get("ready_state"), " RunScript(1+1) =", out.get("runscript_raw"))
     for e in out.get("events", []):
