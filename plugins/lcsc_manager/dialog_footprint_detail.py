@@ -19,7 +19,7 @@ from .footprint_viewer import (
 )
 from .utils.logger import get_logger
 from .utils.ui import fit_to_screen
-from .utils.webview import mark_edge_broken, new_webview
+from .utils.webview import new_webview
 
 try:
     import wx.html2
@@ -110,30 +110,6 @@ class FootprintDetailDialog(wx.Dialog):
             self._flush_tries = 0
             self._flush_pending()
 
-    EDGE_LOAD_TIMEOUT_MS = 8000
-
-    def _watch_edge(self):
-        """An Edge WebView whose first page never loads (a WebView2 runtime
-        that is installed but not working) would leave this window blank:
-        after a while, rebuild with Internet Explorer."""
-        if self._closing or self.webview is None or not getattr(self.webview, "is_edge", False):
-            return
-        if self._page_loaded or self._page_signalled:
-            return
-        mark_edge_broken()
-        old = self.webview
-        self._sizer.Detach(old)
-        old.Destroy()
-        self.webview = new_webview(self, prefer_edge=False)
-        if self.webview is None:
-            return
-        self._sizer.Add(self.webview, 1, wx.EXPAND)
-        self.Layout()
-        self._attach(self.webview)
-        model, status = self._pending or (None, "loading")
-        self._pending = None
-        self._set_page(model, status)
-
     # ------------------------------------------------------------ the page
 
     def _set_page(self, model: Optional[Dict[str, Any]], status: str):
@@ -149,8 +125,6 @@ class FootprintDetailDialog(wx.Dialog):
         self._page_loaded = False
         self._page_signalled = False
         self.webview.SetPage(html, "")
-        if getattr(self.webview, "is_edge", False):
-            wx.CallLater(self.EDGE_LOAD_TIMEOUT_MS, self._watch_edge)
 
     def _page_ready(self) -> bool:
         """Whether the viewer page is up: EVT_WEBVIEW_LOADED also fires for

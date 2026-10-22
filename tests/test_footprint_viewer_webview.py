@@ -4,10 +4,9 @@ the page loads with the pads, the ruler measures the right distance from
 real mouse events, the 3D model is pushed in and (where the engine has
 WebGL) rendered. Offline: the OBJ download is stubbed.
 
-This is the test the Windows CI job exists for. On Windows wx defaults to
-the Internet Explorer engine, which has no WebGL; the dialog asks for Edge
-(WebView2), and this test reports which one it got (the user agent says).
-WebGL is required only on engines that have it (Edge, WebKit).
+This is the test the Windows CI job exists for. On Windows the dialog asks
+for the Edge (WebView2) engine, which has WebGL; this test requires that
+engine there (the user agent says) and the 3D render.
 
 With LCSC_SHOT_DIR set, a screenshot of the 2D and 3D views is saved
 there (the CI job uploads them), so a person can look at the result.
@@ -71,18 +70,6 @@ import lcsc_manager
 import lcsc_manager.utils.config as cfgmod
 from lcsc_manager.utils.config import Config
 cfgmod._config_instance = Config(config_path=Path(tempfile.mkdtemp()) / "g.json")
-diag = {{}}
-try:
-    import wx.html2 as html2
-    for name in ("WebViewBackendEdge", "WebViewBackendIE"):
-        if hasattr(html2, name):
-            try:
-                vi = html2.WebView.GetBackendVersionInfo(getattr(html2, name))
-                diag[name + "_version"] = str(vi.GetVersionString()) if hasattr(vi, "GetVersionString") else repr(vi)
-            except Exception as e:
-                diag[name + "_version"] = "? " + str(e)
-except Exception as e:
-    diag["html2"] = str(e)
 from lcsc_manager.converters import model_3d_converter
 model_3d_converter.Model3DConverter._download_obj = lambda self, url: {obj!r}
 from lcsc_manager.dialog_footprint_detail import FootprintDetailDialog
@@ -93,7 +80,7 @@ print("STAGE imports done", flush=True)
 d = FootprintDetailDialog(None, "C1", "TEST", {svg!r},
                           {{"x": 3968, "y": 2997.8, "width": 31.4, "height": 30.3}},
                           component_data=data, mesh_cache={{}})
-out = {{"webview": d.webview is not None, "wx": wx.version(), "events": [], "diag": diag,
+out = {{"webview": d.webview is not None, "wx": wx.version(), "events": [],
        "user_data": os.environ.get("WEBVIEW2_USER_DATA_FOLDER")}}
 try:
     import wx.html2 as html2
@@ -138,7 +125,7 @@ def js(code):
     # good on the Edge engine. The result arrives as an event.
     w = d.webview
     if not hasattr(w, "RunScriptAsync") or not d._has_messages:
-        # IE: synchronous works, and its RunScriptAsync never reports back.
+        # No script messages: the synchronous call is safe (WebKit).
         r = w.RunScript(code)
         return r if isinstance(r, tuple) else (True, r)
     if _script["bound"] is not w:
@@ -177,8 +164,7 @@ try:
     out["user_agent"] = d.webview.GetUserAgent()
 except Exception as e:
     out["user_agent"] = "? " + str(e)
-# No RunScript before a page has loaded: on an Edge view that never loads it
-# blocks for good. The dialog's own watchdog rebuilds with IE after 8 s.
+# No script before the page has said it is up.
 val = None; ok = False
 for _ in range(300):
     pump(0.1)
@@ -186,7 +172,6 @@ for _ in range(300):
         break
 out["loaded_event"] = d._page_loaded or d._page_signalled
 out["script_messages"] = d._has_messages
-out["rebuilt_with_ie"] = not getattr(d.webview, "is_edge", False) and bool(out.get("backends", {{}}).get("WebViewBackendEdge"))
 if out["loaded_event"]:
     try:
         out["user_agent"] = d.webview.GetUserAgent()
@@ -225,29 +210,6 @@ ok, val = js("JSON.stringify(window.lcscDebug())"); out["view3d"] = json.loads(v
 shot("footprint-3d.png")
 out["wx_log"] = [m for m in col.msgs if "PgmOrNull" not in m]
 d.Destroy()
-stage("probes")
-if sys.platform == "win32":
-    from lcsc_manager.utils.webview import enable_ie11_emulation, webview2_runtime_installed
-    out["webview2_runtime"] = webview2_runtime_installed()
-    for label, backend in (("ie_probe", "WebViewBackendIE"), ("edge_probe", "WebViewBackendEdge")):
-        if not hasattr(html2, backend):
-            continue
-        try:
-            if backend == "WebViewBackendIE":
-                enable_ie11_emulation()
-            f = wx.Dialog(None, title=label); f.SetSize((400, 300))
-            probe = {{"events": []}}
-            w = html2.WebView.New(f, backend=getattr(html2, backend))
-            for name in ("EVT_WEBVIEW_LOADED", "EVT_WEBVIEW_ERROR"):
-                w.Bind(getattr(html2, name), lambda e, n=name: (probe["events"].append(n + " " + e.GetString()[:160]), e.Skip()))
-            w.SetPage("<html><body><script>document.title='t' + (1+1);</script>ok</body></html>", "")
-            f.Show(); pump(4.0)
-            # No RunScript here: synchronous, it never returns on Edge.
-            probe.update(title=w.GetCurrentTitle(), ua=w.GetUserAgent()[:90])
-            out[label] = probe
-            f.Destroy()
-        except Exception as e:
-            out[label] = "error " + str(e)
 print("RESULT " + json.dumps(out))
 """
 
@@ -277,11 +239,9 @@ def _run_viewer(python, backend=None):
     assert line, run.stdout[-1500:] + run.stderr[-1500:]
     out = json.loads(line[-1][len("RESULT "):])
     print("  wx:", out.get("wx"), " backends:", out.get("backends"), " loader:", out.get("html2_dir"))
-    print("  runtime:", out.get("webview2_runtime"), " user data:", out.get("user_data"))
-    print("  IE probe:", out.get("ie_probe"))
-    print("  Edge probe:", out.get("edge_probe"))
+    print("  user data:", out.get("user_data"))
     print("  engine:", out.get("user_agent"), " loaded event:", out.get("loaded_event"),
-          " script messages:", out.get("script_messages"), " rebuilt with IE:", out.get("rebuilt_with_ie"))
+          " script messages:", out.get("script_messages"))
     print("  page:", out.get("ready_state"))
     for e in out.get("events", []):
         print("  event:", e)
@@ -322,33 +282,15 @@ def test_footprint_viewer_in_a_real_webview():
         print("test_footprint_viewer_in_a_real_webview: SKIP (no WebView backend)")
         return
     ua = out.get("user_agent") or ""
-    assert out.get("loaded_event"), "no page ever loaded, not even after the IE fallback"
-    # On Windows the default is Edge when its runtime is installed (the CI
-    # job installs it); elsewhere the platform engine, which has WebGL.
-    if sys.platform == "win32" and out.get("rebuilt_with_ie"):
-        print("  WARNING: Edge (WebView2) never loaded a page here; the window fell back to IE")
-    need_webgl = sys.platform != "win32" or "Edg/" in ua
-    _check_viewer(out, need_webgl)
-    print("test_footprint_viewer_in_a_real_webview: PASS"
-          + (" (on the IE fallback)" if out.get("rebuilt_with_ie") else ""))
-
-
-def test_footprint_viewer_on_internet_explorer():
-    """Windows without the WebView2 runtime: IE in IE11 mode must still show
-    the drawing and measure; 3D is checked only if IE's WebGL works."""
-    python = kicad_python()
-    if sys.platform != "win32" or not python.exists():
-        print("test_footprint_viewer_on_internet_explorer: SKIP (not Windows with KiCad)")
-        return
-    out = _run_viewer(python, backend="ie")
-    ua = out.get("user_agent") or ""
-    assert "Trident" in ua or "MSIE" in ua, f"expected Internet Explorer, got: {ua!r}"
-    assert "MSIE 7.0" not in ua, "IE is still in IE7 emulation; the registry value didn't take"
-    _check_viewer(out, need_webgl=False)
-    print("test_footprint_viewer_on_internet_explorer: PASS")
+    assert out.get("loaded_event"), "the page never loaded"
+    # On Windows the window asks for Edge when its runtime is installed (the
+    # CI job installs it); elsewhere the platform engine. Both have WebGL.
+    if sys.platform == "win32":
+        assert "Edg/" in ua, f"expected the Edge engine (WebView2 runtime installed?), got: {ua!r}"
+    _check_viewer(out, need_webgl=True)
+    print("test_footprint_viewer_in_a_real_webview: PASS")
 
 
 if __name__ == "__main__":
     test_footprint_viewer_in_a_real_webview()
-    test_footprint_viewer_on_internet_explorer()
     print("\nAll footprint viewer WebView tests passed.")

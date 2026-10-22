@@ -1,8 +1,7 @@
 name: Windows (KiCad)
 
-# The plugin's dialogs under KiCad's own Python on Windows: wx, the WebView
-# (Edge/WebView2, or the old IE engine when that is all wx gives us) and the
-# footprint details window with its WebGL view. The Linux job (tests.yml)
+# The plugin's dialogs under KiCad's own Python on Windows: wx, the Edge
+# (WebView2) WebView and the footprint details window with its WebGL view. The Linux job (tests.yml)
 # can't do this; KiCad is ~1.5 GB, so this runs on main and on request.
 
 on:
