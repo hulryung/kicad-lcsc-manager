@@ -107,10 +107,20 @@ for name in ("EVT_WEBVIEW_LOADED", "EVT_WEBVIEW_ERROR", "EVT_WEBVIEW_NAVIGATED")
 d.Show()
 
 def pump(sec):
-    # A real event loop for `sec` seconds, not Yield(): WebView2's
-    # asynchronous start-up completes through the message loop.
-    wx.CallLater(int(sec * 1000), app.ExitMainLoop)
-    app.MainLoop()
+    # Dispatch window messages for `sec` seconds: WebView2's asynchronous
+    # start-up completes through the message loop. (MainLoop never
+    # returned on Windows; Yield() dispatched nothing to WebView2.)
+    loop = wx.GUIEventLoop()
+    wx.EventLoop.SetActive(loop)
+    end = time.time() + sec
+    while time.time() < end:
+        while loop.Pending():
+            loop.Dispatch()
+        loop.ProcessIdle()
+        time.sleep(0.01)
+
+def stage(name):
+    print("STAGE " + name, flush=True)
 
 def js(code):
     r = d.webview.RunScript(code)
@@ -139,6 +149,7 @@ for _ in range(600):
     ok, val = js("JSON.stringify(window.lcscDebug ? window.lcscDebug() : null)")
     if ok and val and val != "null" and json.loads(val)["status"] in ("ready", "failed", "none"):
         break
+stage("polled " + repr(val)[:80])
 out["runscript"] = bool(ok)
 out["loaded"] = json.loads(val) if ok and val and val != "null" else None
 out["runscript_raw"] = repr(d.webview.RunScript("1+1"))
@@ -158,12 +169,14 @@ measure = '''(function(){{
   return document.getElementById('status').textContent;
 }})()'''
 ok, val = js(measure); out["measure"] = val if ok else None
+stage("measured")
 shot("footprint-2d.png")
 js("document.getElementById('b3d').click(); 'ok'"); pump(2.0)
 ok, val = js("JSON.stringify(window.lcscDebug())"); out["view3d"] = json.loads(val) if ok else None
 shot("footprint-3d.png")
 out["wx_log"] = [m for m in col.msgs if "PgmOrNull" not in m]
 d.Destroy()
+stage("probes")
 if sys.platform == "win32":
     from lcsc_manager.utils.webview import enable_ie11_emulation, webview2_runtime_installed
     out["webview2_runtime"] = webview2_runtime_installed()
@@ -200,9 +213,14 @@ def _run_viewer(python, backend=None):
     # WebView2 keeps its profile next to the executable unless told otherwise,
     # and C:\Program Files\KiCad is not writable.
     env.setdefault("WEBVIEW2_USER_DATA_FOLDER", tempfile.mkdtemp(prefix="webview2-"))
-    run = subprocess.run([str(python), "-c", textwrap.dedent(code), *no_window_restore()],
-                         env=env, capture_output=True, encoding="utf-8", errors="replace",
-                         timeout=300)
+    try:
+        run = subprocess.run([str(python), "-c", textwrap.dedent(code), *no_window_restore()],
+                             env=env, capture_output=True, encoding="utf-8", errors="replace",
+                             timeout=240)
+    except subprocess.TimeoutExpired as e:
+        raise AssertionError("the viewer script hung; its output so far:\n"
+                             + (e.stdout or b"").decode("utf-8", "replace")[-2000:]
+                             + (e.stderr or b"").decode("utf-8", "replace")[-1000:])
     assert run.returncode == 0, run.stdout[-1500:] + run.stderr[-1500:]
     line = [l for l in run.stdout.splitlines() if l.startswith("RESULT ")]
     assert line, run.stdout[-1500:] + run.stderr[-1500:]
