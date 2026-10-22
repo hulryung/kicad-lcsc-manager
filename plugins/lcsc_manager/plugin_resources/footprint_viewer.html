@@ -592,6 +592,8 @@ var DATA = /*__DATA__*/null;
   };
 
   applyView();
+  // Tell the dialog the page is up (wx script message handler "lcsc").
+  try { if (window.lcsc && window.lcsc.postMessage) window.lcsc.postMessage('ready'); } catch (e) {}
 })();
 </script>
 </body>

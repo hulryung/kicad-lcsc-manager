@@ -64,8 +64,13 @@ class FootprintDetailDialog(wx.Dialog):
         self._pending = None
         self._flush_tries = 0
         # RunScript on a page that is still loading blocks the main thread
-        # (WebKit), so nothing is run before EVT_WEBVIEW_LOADED.
+        # (WebKit), so nothing is run before EVT_WEBVIEW_LOADED. On Edge a
+        # synchronous RunScript blocks even after that, so where wx has
+        # script messages the page reports itself ready (postMessage) and
+        # scripts go through RunScriptAsync.
         self._page_loaded = False
+        self._page_signalled = False
+        self._has_messages = False
 
         self._sizer = wx.BoxSizer(wx.VERTICAL)
         self.webview = new_webview(self, prefer_edge=True)
@@ -83,9 +88,27 @@ class FootprintDetailDialog(wx.Dialog):
         self.Bind(wx.EVT_CLOSE, self._on_close)
 
         if self.webview is not None:
-            self.webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, self._on_page_loaded)
+            self._attach(self.webview)
             self._set_page(model=None, status="loading")
             threading.Thread(target=self._load_model, daemon=True).start()
+
+    def _attach(self, webview):
+        webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, self._on_page_loaded)
+        self._has_messages = False
+        add = getattr(webview, "AddScriptMessageHandler", None)
+        if add is not None:
+            try:
+                self._has_messages = bool(add("lcsc"))
+            except Exception as e:
+                logger.debug(f"script messages unavailable: {e}")
+        if self._has_messages:
+            webview.Bind(wx.html2.EVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, self._on_script_message)
+
+    def _on_script_message(self, event):
+        if event.GetString() == "ready":
+            self._page_signalled = True
+            self._flush_tries = 0
+            self._flush_pending()
 
     EDGE_LOAD_TIMEOUT_MS = 8000
 
@@ -95,7 +118,7 @@ class FootprintDetailDialog(wx.Dialog):
         after a while, rebuild with Internet Explorer."""
         if self._closing or self.webview is None or not getattr(self.webview, "is_edge", False):
             return
-        if self._page_loaded:
+        if self._page_loaded or self._page_signalled:
             return
         mark_edge_broken()
         old = self.webview
@@ -106,7 +129,7 @@ class FootprintDetailDialog(wx.Dialog):
             return
         self._sizer.Add(self.webview, 1, wx.EXPAND)
         self.Layout()
-        self.webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, self._on_page_loaded)
+        self._attach(self.webview)
         model, status = self._pending or (None, "loading")
         self._pending = None
         self._set_page(model, status)
@@ -124,6 +147,7 @@ class FootprintDetailDialog(wx.Dialog):
             logger.error(f"Footprint viewer page could not be built: {e}", exc_info=True)
             html = f"<html><body><p>The footprint viewer could not be built: {e}</p></body></html>"
         self._page_loaded = False
+        self._page_signalled = False
         self.webview.SetPage(html, "")
         if getattr(self.webview, "is_edge", False):
             wx.CallLater(self.EDGE_LOAD_TIMEOUT_MS, self._watch_edge)
@@ -134,6 +158,8 @@ class FootprintDetailDialog(wx.Dialog):
         run = getattr(self.webview, "RunScript", None)
         if run is None:
             return True                       # no RunScript: SetPage path
+        if self._has_messages:
+            return self._page_signalled       # the page said so itself
         if not self._page_loaded:
             return False
         try:
@@ -165,6 +191,13 @@ class FootprintDetailDialog(wx.Dialog):
 
     def _run_script(self, script: str) -> bool:
         """Run JS in the page; False when this wx can't or the page refused."""
+        run_async = getattr(self.webview, "RunScriptAsync", None)
+        if run_async is not None and self._has_messages:
+            try:
+                run_async(script)             # never blocks (Edge would)
+                return True
+            except Exception as e:
+                logger.debug(f"RunScriptAsync failed: {e}")
         run = getattr(self.webview, "RunScript", None)
         if run is None:
             return False

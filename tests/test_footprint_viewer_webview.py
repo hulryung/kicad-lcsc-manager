@@ -132,9 +132,24 @@ def pump(sec):
 def stage(name):
     print("STAGE " + name, flush=True)
 
+_script = {{"bound": None, "result": None}}
 def js(code):
-    r = d.webview.RunScript(code)
-    return r if isinstance(r, tuple) else (True, r)
+    # RunScriptAsync where it exists: a synchronous RunScript blocks for
+    # good on the Edge engine. The result arrives as an event.
+    w = d.webview
+    if not hasattr(w, "RunScriptAsync"):
+        r = w.RunScript(code)
+        return r if isinstance(r, tuple) else (True, r)
+    if _script["bound"] is not w:
+        w.Bind(html2.EVT_WEBVIEW_SCRIPT_RESULT,
+               lambda e: _script.__setitem__("result", (not e.IsError(), e.GetString())))
+        _script["bound"] = w
+    _script["result"] = None
+    w.RunScriptAsync(code)
+    end = time.time() + 15
+    while _script["result"] is None and time.time() < end:
+        pump(0.05)
+    return _script["result"] or (False, "no result in 15 s")
 
 def shot(name):
     folder = os.environ.get("LCSC_SHOT_DIR")
@@ -158,11 +173,12 @@ except Exception as e:
 val = None; ok = False
 for _ in range(300):
     pump(0.1)
-    if d._page_loaded:
+    if d._page_loaded or d._page_signalled:
         break
-out["loaded_event"] = d._page_loaded
+out["loaded_event"] = d._page_loaded or d._page_signalled
+out["script_messages"] = d._has_messages
 out["rebuilt_with_ie"] = not getattr(d.webview, "is_edge", False) and bool(out.get("backends", {{}}).get("WebViewBackendEdge"))
-if d._page_loaded:
+if out["loaded_event"]:
     try:
         out["user_agent"] = d.webview.GetUserAgent()
     except Exception as e:
@@ -175,10 +191,10 @@ if d._page_loaded:
 stage("polled " + repr(val)[:80])
 out["runscript"] = bool(ok)
 out["loaded"] = json.loads(val) if ok and val and val != "null" else None
-if not d._page_loaded:
+if not out["loaded_event"]:
     out["wx_log"] = [m for m in col.msgs if "PgmOrNull" not in m]
     print("RESULT " + json.dumps(out)); sys.exit(0)
-out["ready_state"] = repr(d.webview.RunScript("document.readyState + ' ' + (typeof DATA) + ' ' + document.title"))
+out["ready_state"] = repr(js("document.readyState + ' ' + (typeof DATA) + ' ' + document.title"))
 
 measure = '''(function(){{
   var svg = document.querySelector('#view2d svg.world');
@@ -257,7 +273,7 @@ def _run_viewer(python, backend=None):
     print("  IE probe:", out.get("ie_probe"))
     print("  Edge probe:", out.get("edge_probe"))
     print("  engine:", out.get("user_agent"), " loaded event:", out.get("loaded_event"),
-          " rebuilt with IE:", out.get("rebuilt_with_ie"))
+          " script messages:", out.get("script_messages"), " rebuilt with IE:", out.get("rebuilt_with_ie"))
     print("  page:", out.get("ready_state"))
     for e in out.get("events", []):
         print("  event:", e)
