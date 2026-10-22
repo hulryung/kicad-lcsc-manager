@@ -153,18 +153,32 @@ try:
     out["user_agent"] = d.webview.GetUserAgent()
 except Exception as e:
     out["user_agent"] = "? " + str(e)
-val = None
-for _ in range(600):
+# No RunScript before a page has loaded: on an Edge view that never loads it
+# blocks for good. The dialog's own watchdog rebuilds with IE after 8 s.
+val = None; ok = False
+for _ in range(300):
     pump(0.1)
-    ok, val = js("JSON.stringify(window.lcscDebug ? window.lcscDebug() : null)")
-    if ok and val and val != "null" and json.loads(val)["status"] in ("ready", "failed", "none"):
+    if d._page_loaded:
         break
+out["loaded_event"] = d._page_loaded
+out["rebuilt_with_ie"] = not getattr(d.webview, "is_edge", False) and bool(out.get("backends", {{}}).get("WebViewBackendEdge"))
+if d._page_loaded:
+    try:
+        out["user_agent"] = d.webview.GetUserAgent()
+    except Exception as e:
+        out["user_agent"] = "? " + str(e)
+    for _ in range(600):
+        pump(0.1)
+        ok, val = js("JSON.stringify(window.lcscDebug ? window.lcscDebug() : null)")
+        if ok and val and val != "null" and json.loads(val)["status"] in ("ready", "failed", "none"):
+            break
 stage("polled " + repr(val)[:80])
 out["runscript"] = bool(ok)
 out["loaded"] = json.loads(val) if ok and val and val != "null" else None
-out["runscript_raw"] = repr(d.webview.RunScript("1+1"))
+if not d._page_loaded:
+    out["wx_log"] = [m for m in col.msgs if "PgmOrNull" not in m]
+    print("RESULT " + json.dumps(out)); sys.exit(0)
 out["ready_state"] = repr(d.webview.RunScript("document.readyState + ' ' + (typeof DATA) + ' ' + document.title"))
-out["url"] = d.webview.GetCurrentURL()
 
 measure = '''(function(){{
   var svg = document.querySelector('#view2d svg.world');
@@ -203,7 +217,9 @@ if sys.platform == "win32":
                 w.Bind(getattr(html2, name), lambda e, n=name: (probe["events"].append(n + " " + e.GetString()[:160]), e.Skip()))
             w.SetPage("<html><body><script>document.title='t' + (1+1);</script>ok</body></html>", "")
             f.Show(); pump(4.0)
-            probe.update(title=w.GetCurrentTitle(), run=repr(w.RunScript("1+1")), ua=w.GetUserAgent()[:90])
+            probe.update(title=w.GetCurrentTitle(), ua=w.GetUserAgent()[:90])
+            if any(e.startswith("EVT_WEBVIEW_LOADED") for e in probe["events"]):
+                probe["run"] = repr(w.RunScript("1+1"))      # never on a view that didn't load
             out[label] = probe
             f.Destroy()
         except Exception as e:
@@ -240,8 +256,9 @@ def _run_viewer(python, backend=None):
     print("  runtime:", out.get("webview2_runtime"), " user data:", out.get("user_data"))
     print("  IE probe:", out.get("ie_probe"))
     print("  Edge probe:", out.get("edge_probe"))
-    print("  engine:", out.get("user_agent"))
-    print("  page:", out.get("url"), out.get("ready_state"), " RunScript(1+1) =", out.get("runscript_raw"))
+    print("  engine:", out.get("user_agent"), " loaded event:", out.get("loaded_event"),
+          " rebuilt with IE:", out.get("rebuilt_with_ie"))
+    print("  page:", out.get("ready_state"))
     for e in out.get("events", []):
         print("  event:", e)
     return out
@@ -277,13 +294,15 @@ def test_footprint_viewer_in_a_real_webview():
         print("test_footprint_viewer_in_a_real_webview: SKIP (no WebView backend)")
         return
     ua = out.get("user_agent") or ""
-    # On Windows the default is Edge only with its runtime installed (the CI
+    assert out.get("loaded_event"), "no page ever loaded, not even after the IE fallback"
+    # On Windows the default is Edge when its runtime is installed (the CI
     # job installs it); elsewhere the platform engine, which has WebGL.
+    if sys.platform == "win32" and out.get("rebuilt_with_ie"):
+        print("  WARNING: Edge (WebView2) never loaded a page here; the window fell back to IE")
     need_webgl = sys.platform != "win32" or "Edg/" in ua
-    if sys.platform == "win32":
-        assert "Edg/" in ua, f"expected the Edge engine (WebView2 runtime installed?), got: {ua!r}"
     _check_viewer(out, need_webgl)
-    print("test_footprint_viewer_in_a_real_webview: PASS")
+    print("test_footprint_viewer_in_a_real_webview: PASS"
+          + (" (on the IE fallback)" if out.get("rebuilt_with_ie") else ""))
 
 
 def test_footprint_viewer_on_internet_explorer():

@@ -366,8 +366,8 @@ class LCSCManagerSearchDialog(wx.Dialog):
         runtime_error = None
         if HAS_WEBVIEW:
             try:
-                # Edge on Windows when its runtime is there, else IE in IE11
-                # mode (IE7 mode, wx's default, shows no inline SVG at all).
+                # The platform engine; on Windows IE in IE11 mode (IE7 mode,
+                # wx's default there, shows no inline SVG at all).
                 webview = new_webview(parent)
                 if webview is None:
                     runtime_error = RuntimeError("no WebView backend could be created")
