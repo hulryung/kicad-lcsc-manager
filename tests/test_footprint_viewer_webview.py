@@ -18,6 +18,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -68,6 +69,18 @@ import lcsc_manager
 import lcsc_manager.utils.config as cfgmod
 from lcsc_manager.utils.config import Config
 cfgmod._config_instance = Config(config_path=Path(tempfile.mkdtemp()) / "g.json")
+diag = {{}}
+try:
+    import wx.html2 as html2
+    for name in ("WebViewBackendEdge", "WebViewBackendIE"):
+        if hasattr(html2, name):
+            try:
+                vi = html2.WebView.GetBackendVersionInfo(getattr(html2, name))
+                diag[name + "_version"] = str(vi.GetVersionString()) if hasattr(vi, "GetVersionString") else repr(vi)
+            except Exception as e:
+                diag[name + "_version"] = "? " + str(e)
+except Exception as e:
+    diag["html2"] = str(e)
 from lcsc_manager.converters import model_3d_converter
 model_3d_converter.Model3DConverter._download_obj = lambda self, url: {obj!r}
 from lcsc_manager.dialog_footprint_detail import FootprintDetailDialog
@@ -77,7 +90,8 @@ data = {{"easyeda_data": {{"packageDetail": {{"dataStr": {{
 d = FootprintDetailDialog(None, "C1", "TEST", {svg!r},
                           {{"x": 3968, "y": 2997.8, "width": 31.4, "height": 30.3}},
                           component_data=data, mesh_cache={{}})
-out = {{"webview": d.webview is not None, "wx": wx.version(), "events": []}}
+out = {{"webview": d.webview is not None, "wx": wx.version(), "events": [], "diag": diag,
+       "user_data": os.environ.get("WEBVIEW2_USER_DATA_FOLDER")}}
 try:
     import wx.html2 as html2
     out["backends"] = {{name: bool(html2.WebView.IsBackendAvailable(getattr(html2, name)))
@@ -149,6 +163,18 @@ ok, val = js("JSON.stringify(window.lcscDebug())"); out["view3d"] = json.loads(v
 shot("footprint-3d.png")
 out["wx_log"] = [m for m in col.msgs if "PgmOrNull" not in m]
 d.Destroy()
+if hasattr(html2, "WebViewBackendIE") and sys.platform == "win32":
+    try:
+        f = wx.Dialog(None, title="ie probe"); f.SetSize((400, 300))
+        html2.WebView.MSWSetEmulationLevel(html2.WEBVIEWIE_EMU_IE11)
+        w = html2.WebView.New(f, backend=html2.WebViewBackendIE)
+        w.SetPage("<html><body><script>document.title='t' + (1+1);</script>ok</body></html>", "")
+        f.Show(); pump(2.0)
+        out["ie_probe"] = {{"title": w.GetCurrentTitle(), "run": repr(w.RunScript("1+1")),
+                           "ua": w.GetUserAgent()[:80]}}
+        f.Destroy()
+    except Exception as e:
+        out["ie_probe"] = "error " + str(e)
 print("RESULT " + json.dumps(out))
 """
 
@@ -162,6 +188,9 @@ def test_footprint_viewer_in_a_real_webview():
     env = {k: v for k, v in os.environ.items()
            if k not in ("KICAD_API_TOKEN", "KICAD_API_SOCKET", "PYTHONPATH", "PYTHONHOME")}
     env["KICAD_API_TOKEN"] = "t"            # no SWIG registration attempt
+    # WebView2 keeps its profile next to the executable unless told otherwise,
+    # and C:\Program Files\KiCad is not writable.
+    env.setdefault("WEBVIEW2_USER_DATA_FOLDER", tempfile.mkdtemp(prefix="webview2-"))
     run = subprocess.run([str(python), "-c", textwrap.dedent(code), *no_window_restore()],
                          env=env, capture_output=True, text=True, timeout=300)
     assert run.returncode == 0, run.stdout[-1500:] + run.stderr[-1500:]
@@ -169,6 +198,7 @@ def test_footprint_viewer_in_a_real_webview():
     assert line, run.stdout[-1500:] + run.stderr[-1500:]
     out = json.loads(line[-1][len("RESULT "):])
     print("  wx:", out.get("wx"), " backends:", out.get("backends"), " loader:", out.get("html2_dir"))
+    print("  versions:", out.get("diag"), " user data:", out.get("user_data"), " IE probe:", out.get("ie_probe"))
     print("  engine:", out.get("user_agent"))
     print("  page:", out.get("url"), out.get("ready_state"), " RunScript(1+1) =", out.get("runscript_raw"))
     for e in out.get("events", []):

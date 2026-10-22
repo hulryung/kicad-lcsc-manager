@@ -145,7 +145,7 @@ def test_swig_host_registers_in_memory_on_kicad9():
     assert host.register_footprint_library_in_memory("lcsc_footprints", "${KIPRJMOD}/x",
                                                      Path("/p/fp-lib-table")) is True
     assert table.inserted[0].args == ("lcsc_footprints", "${KIPRJMOD}/x", "KiCad", "")
-    assert table.saved == "/p/fp-lib-table"
+    assert Path(table.saved) == Path("/p/fp-lib-table")
     pcb, table = _fake_pcbnew(kicad9=True, table=_Table(["lcsc_footprints"]))
     assert SwigHost(pcb).register_footprint_library_in_memory(
         "lcsc_footprints", "u", Path("/t")) is False

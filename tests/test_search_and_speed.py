@@ -422,10 +422,12 @@ def test_search_dialog_under_kicad_python():
     home = tempfile.mkdtemp()
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
     env.update(HOME=home, KICAD_CONFIG_HOME=home, KICAD_API_TOKEN="t")   # no SWIG registration
+    env["PYTHONIOENCODING"] = "utf-8"       # the labels have "—" and "…"
     run = subprocess.run([str(KICAD_PYTHON), "-c",
                           DIALOG_SCRIPT.format(plugins=str(REPO / "plugins")),
                           *no_window_restore()],
-                         capture_output=True, text=True, env=env, timeout=120)
+                         capture_output=True, encoding="utf-8", errors="replace",
+                         env=env, timeout=120)
     out = run.stdout
     assert run.returncode == 0, run.stderr[-1500:]
     expected = [
@@ -452,7 +454,8 @@ def test_search_dialog_under_kicad_python():
         "off gui thread: True",
     ]
     for line in expected:
-        assert line in out, f"missing: {line}\n--- got:\n{out}\n{run.stderr[-600:]}"
+        # The missing line goes last: the test runner shows only the tail.
+        assert line in out, f"--- got:\n{out}\n{run.stderr[-600:]}\nmissing: {line!r}"
     print("test_search_dialog_under_kicad_python: PASS")
 
 
