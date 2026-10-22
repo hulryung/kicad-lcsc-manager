@@ -137,7 +137,8 @@ def js(code):
     # RunScriptAsync where it exists: a synchronous RunScript blocks for
     # good on the Edge engine. The result arrives as an event.
     w = d.webview
-    if not hasattr(w, "RunScriptAsync"):
+    if not hasattr(w, "RunScriptAsync") or not d._has_messages:
+        # IE: synchronous works, and its RunScriptAsync never reports back.
         r = w.RunScript(code)
         return r if isinstance(r, tuple) else (True, r)
     if _script["bound"] is not w:
