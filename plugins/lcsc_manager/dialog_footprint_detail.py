@@ -19,40 +19,16 @@ from .footprint_viewer import (
 )
 from .utils.logger import get_logger
 from .utils.ui import fit_to_screen
+from .utils.webview import new_webview
 
 try:
     import wx.html2
-    HAS_WEBVIEW = True
-except ImportError:
-    HAS_WEBVIEW = False
+except ImportError:          # new_webview() returns None then
+    pass
 
 logger = get_logger()
 
 TEMPLATE_PATH = Path(__file__).parent / "plugin_resources" / "footprint_viewer.html"
-
-
-def new_webview(parent):
-    """A WebView for the viewer page. On Windows wx defaults to the old
-    Internet Explorer engine, which has no WebGL; ask for Edge (WebView2)
-    when it is there. Returns None when no WebView backend is available."""
-    if not HAS_WEBVIEW:
-        return None
-    backend = wx.html2.WebViewBackendDefault
-    edge = getattr(wx.html2, "WebViewBackendEdge", None)
-    try:
-        if edge and wx.html2.WebView.IsBackendAvailable(edge):
-            backend = edge
-        elif hasattr(wx.html2.WebView, "MSWSetEmulationLevel"):
-            # Internet Explorer it is. Its default is IE7 emulation, where
-            # the page's JavaScript doesn't run; IE11 mode has ES5 and WebGL.
-            wx.html2.WebView.MSWSetEmulationLevel(wx.html2.WEBVIEWIE_EMU_IE11)
-    except Exception as e:
-        logger.debug(f"WebView backend choice: {e}")
-    try:
-        return wx.html2.WebView.New(parent, backend=backend)
-    except Exception as e:
-        logger.warning(f"WebView backend unavailable: {e}")
-        return None
 
 
 class FootprintDetailDialog(wx.Dialog):

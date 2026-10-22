@@ -24,6 +24,7 @@ from .api.lcsc_api import ca_bundle, get_api_client, LCSCAPIError, LCSCRateLimit
 from .library.library_manager import LibraryManager
 from .utils.ui import fit_to_screen, status_colour
 from .dialog_footprint_detail import FootprintDetailDialog
+from .utils.webview import new_webview
 from .utils.logger import get_logger
 from .utils.config import get_config
 from .utils.session import ImportSession, REOPEN_HINT
@@ -365,7 +366,11 @@ class LCSCManagerSearchDialog(wx.Dialog):
         runtime_error = None
         if HAS_WEBVIEW:
             try:
-                webview = wx.html2.WebView.New(parent)
+                # Edge on Windows when its runtime is there, else IE in IE11
+                # mode (IE7 mode, wx's default, shows no inline SVG at all).
+                webview = new_webview(parent)
+                if webview is None:
+                    runtime_error = RuntimeError("no WebView backend could be created")
             except Exception as e:
                 logger.warning(f"WebView backend unavailable at runtime: {e}")
                 runtime_error = e

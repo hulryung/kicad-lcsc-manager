@@ -179,20 +179,20 @@ print("RESULT " + json.dumps(out))
 """
 
 
-def test_footprint_viewer_in_a_real_webview():
-    python = kicad_python()
-    if not python.exists():
-        print("test_footprint_viewer_in_a_real_webview: SKIP (no KiCad python)")
-        return
+def _run_viewer(python, backend=None):
     code = SCRIPT.format(plugins=str(PLUGINS), obj=CUBE_OBJ, pads=PADS, svgnode=SVGNODE, svg=SVG)
     env = {k: v for k, v in os.environ.items()
            if k not in ("KICAD_API_TOKEN", "KICAD_API_SOCKET", "PYTHONPATH", "PYTHONHOME")}
     env["KICAD_API_TOKEN"] = "t"            # no SWIG registration attempt
+    env["PYTHONIOENCODING"] = "utf-8"
+    if backend:
+        env["LCSC_WEBVIEW_BACKEND"] = backend
     # WebView2 keeps its profile next to the executable unless told otherwise,
     # and C:\Program Files\KiCad is not writable.
     env.setdefault("WEBVIEW2_USER_DATA_FOLDER", tempfile.mkdtemp(prefix="webview2-"))
     run = subprocess.run([str(python), "-c", textwrap.dedent(code), *no_window_restore()],
-                         env=env, capture_output=True, text=True, timeout=300)
+                         env=env, capture_output=True, encoding="utf-8", errors="replace",
+                         timeout=300)
     assert run.returncode == 0, run.stdout[-1500:] + run.stderr[-1500:]
     line = [l for l in run.stdout.splitlines() if l.startswith("RESULT ")]
     assert line, run.stdout[-1500:] + run.stderr[-1500:]
@@ -203,9 +203,10 @@ def test_footprint_viewer_in_a_real_webview():
     print("  page:", out.get("url"), out.get("ready_state"), " RunScript(1+1) =", out.get("runscript_raw"))
     for e in out.get("events", []):
         print("  event:", e)
-    if not out["webview"]:
-        print("test_footprint_viewer_in_a_real_webview: SKIP (no WebView backend)")
-        return
+    return out
+
+
+def _check_viewer(out, need_webgl):
     assert out["runscript"], "RunScript did not succeed on this engine (see the lines above)"
     loaded = out["loaded"]
     assert loaded and loaded["pads"] == 4 and loaded["snaps"] >= 12, out
@@ -214,9 +215,7 @@ def test_footprint_viewer_in_a_real_webview():
     v3 = out["view3d"]
     print("  3D:", v3)
     assert v3["status"] == "ready"
-    ua = out.get("user_agent") or ""
-    has_webgl_engine = "Edg/" in ua or "AppleWebKit" in ua or "Gecko/" in ua
-    if has_webgl_engine:
+    if need_webgl or (v3.get("gl") and v3.get("mesh")):
         assert v3["gl"] and v3["mesh"] and v3["parts"] == 1 and v3["tex"], v3
         # The 2 mm cube sits at the centre of the view, so the middle pixel
         # is its blue-ish top, lit, not the grey background.
@@ -225,9 +224,43 @@ def test_footprint_viewer_in_a_real_webview():
     else:
         print("  (engine without WebGL: 3D rendering not checked)")
     assert out["wx_log"] == [], out["wx_log"]
+
+
+def test_footprint_viewer_in_a_real_webview():
+    python = kicad_python()
+    if not python.exists():
+        print("test_footprint_viewer_in_a_real_webview: SKIP (no KiCad python)")
+        return
+    out = _run_viewer(python)
+    if not out["webview"]:
+        print("test_footprint_viewer_in_a_real_webview: SKIP (no WebView backend)")
+        return
+    ua = out.get("user_agent") or ""
+    # On Windows the default is Edge only with its runtime installed (the CI
+    # job installs it); elsewhere the platform engine, which has WebGL.
+    need_webgl = sys.platform != "win32" or "Edg/" in ua
+    if sys.platform == "win32":
+        assert "Edg/" in ua, f"expected the Edge engine (WebView2 runtime installed?), got: {ua!r}"
+    _check_viewer(out, need_webgl)
     print("test_footprint_viewer_in_a_real_webview: PASS")
+
+
+def test_footprint_viewer_on_internet_explorer():
+    """Windows without the WebView2 runtime: IE in IE11 mode must still show
+    the drawing and measure; 3D is checked only if IE's WebGL works."""
+    python = kicad_python()
+    if sys.platform != "win32" or not python.exists():
+        print("test_footprint_viewer_on_internet_explorer: SKIP (not Windows with KiCad)")
+        return
+    out = _run_viewer(python, backend="ie")
+    ua = out.get("user_agent") or ""
+    assert "Trident" in ua or "MSIE" in ua, f"expected Internet Explorer, got: {ua!r}"
+    assert "MSIE 7.0" not in ua, "IE is still in IE7 emulation; the registry value didn't take"
+    _check_viewer(out, need_webgl=False)
+    print("test_footprint_viewer_on_internet_explorer: PASS")
 
 
 if __name__ == "__main__":
     test_footprint_viewer_in_a_real_webview()
+    test_footprint_viewer_on_internet_explorer()
     print("\nAll footprint viewer WebView tests passed.")
