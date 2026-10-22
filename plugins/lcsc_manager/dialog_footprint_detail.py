@@ -78,6 +78,11 @@ class FootprintDetailDialog(wx.Dialog):
         self._mesh_cache = mesh_cache if mesh_cache is not None else {}
         self._closing = False
         self._page_has_part_data = component_data is not None
+        # The model can be ready (cached, or a quick download) before the
+        # page has finished loading, when RunScript has nothing to call into.
+        # What arrives early waits here until the page answers.
+        self._pending = None
+        self._flush_tries = 0
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.webview = new_webview(self)
@@ -95,6 +100,7 @@ class FootprintDetailDialog(wx.Dialog):
         self.Bind(wx.EVT_CLOSE, self._on_close)
 
         if self.webview is not None:
+            self.webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, self._on_page_loaded)
             self._set_page(model=None, status="loading")
             threading.Thread(target=self._load_model, daemon=True).start()
 
@@ -111,6 +117,38 @@ class FootprintDetailDialog(wx.Dialog):
             logger.error(f"Footprint viewer page could not be built: {e}", exc_info=True)
             html = f"<html><body><p>The footprint viewer could not be built: {e}</p></body></html>"
         self.webview.SetPage(html, "")
+
+    def _page_ready(self) -> bool:
+        """Whether the viewer page is up: EVT_WEBVIEW_LOADED also fires for
+        the blank page a new WebView starts with, so ask the page itself."""
+        run = getattr(self.webview, "RunScript", None)
+        if run is None:
+            return True                       # no RunScript: SetPage path
+        try:
+            result = run("typeof window.lcscSetModel")
+        except Exception:
+            return False
+        if isinstance(result, tuple):
+            return bool(result[0]) and result[1] == "function"
+        return False
+
+    def _on_page_loaded(self, event):
+        event.Skip()
+        self._flush_tries = 0
+        self._flush_pending()
+
+    def _flush_pending(self):
+        if self._pending is None or self._closing:
+            return
+        if not self._page_ready():
+            # Loaded, but the script hasn't run yet: look again shortly.
+            self._flush_tries += 1
+            if self._flush_tries < 30:
+                wx.CallLater(200, self._flush_pending)
+            return
+        model, status = self._pending
+        self._pending = None
+        self._push_model(model, status)
 
     def _run_script(self, script: str) -> bool:
         """Run JS in the page; False when this wx can't or the page refused."""
@@ -164,6 +202,14 @@ class FootprintDetailDialog(wx.Dialog):
             # ruler can snap and the origin is right.
             self._set_page(model, status)
             return
+        if not self._page_ready():
+            self._pending = (model, status)
+            self._flush_tries = 0
+            wx.CallLater(200, self._flush_pending)
+            return
+        self._push_model(model, status)
+
+    def _push_model(self, model: Optional[Dict[str, Any]], status: str):
         if model is not None:
             if self._run_script(f"window.lcscSetModel({to_js_json(model)}); true"):
                 return

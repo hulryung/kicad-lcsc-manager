@@ -25,10 +25,9 @@ sys.path.insert(0, str(PLUGINS))
 
 from lcsc_manager.utils.runtime import in_ipc_plugin_process
 
-KICAD_PYTHON = Path(
-    "/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework"
-    "/Versions/Current/bin/python3"
-)
+sys.path.insert(0, str(Path(__file__).parent))
+from kicad_python import kicad_python, no_window_restore   # noqa: E402
+KICAD_PYTHON = kicad_python()
 
 
 def _env(**extra):
@@ -39,10 +38,7 @@ def _env(**extra):
     return env
 
 
-# macOS: a wx process that dies or exits abruptly a few times makes the next
-# launch of that Python.app stop at a "Reopen windows?" prompt, which nobody
-# answers in a test run. This argument turns that state restoration off.
-NO_WINDOW_RESTORE = ["-ApplePersistenceIgnoreState", "YES"]
+NO_WINDOW_RESTORE = no_window_restore()
 
 
 def _run(python, code, **env):

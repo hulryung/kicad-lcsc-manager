@@ -17,10 +17,9 @@ from pathlib import Path
 REPO = Path(__file__).parent.parent
 LIB = REPO / "plugins" / "lcsc_manager" / "lib"
 
-KICAD_PYTHON = Path(
-    "/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework"
-    "/Versions/Current/bin/python3"
-)
+sys.path.insert(0, str(Path(__file__).parent))
+from kicad_python import kicad_python, no_window_restore   # noqa: E402
+KICAD_PYTHON = kicad_python()
 
 
 def _bundled_version(pkg: str, *candidates: str) -> str:

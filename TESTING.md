@@ -2,6 +2,17 @@
 
 ## Automated tests
 
+Two CI jobs: `tests.yml` runs the offline suite on Linux for every push, and
+`windows-kicad.yml` installs KiCad on a Windows runner and runs the tests
+that need KiCad's own Python (`run-tests.py ipc_prep kicad_host bundled_libs
+footprint_viewer search_and_speed`) on pushes to `main` and from the Actions
+tab (**Run workflow**). It is the only place the plugin's dialogs are
+exercised on Windows: `test_footprint_viewer_webview.py` opens the footprint
+details window in a real WebView, measures with mouse events, loads the 3D
+model and checks the WebGL render, and uploads screenshots of the 2D and 3D
+views as the `windows-screenshots` artifact. The tests find KiCad's Python
+through `tests/kicad_python.py` (`KICAD_PYTHON` overrides it).
+
 Run everything with `python3 scripts/run-tests.py` (add `--network` for the
 two tests that import real parts from LCSC/EasyEDA). CI runs the same command
 on every push, and the release workflow runs it before building. Each

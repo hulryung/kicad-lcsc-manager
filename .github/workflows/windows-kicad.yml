@@ -1,0 +1,55 @@
+name: Windows (KiCad)
+
+# The plugin's dialogs under KiCad's own Python on Windows: wx, the WebView
+# (Edge/WebView2, or the old IE engine when that is all wx gives us) and the
+# footprint details window with its WebGL view. The Linux job (tests.yml)
+# can't do this; KiCad is ~1.5 GB, so this runs on main and on request.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kicad-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install KiCad
+        shell: pwsh
+        run: |
+          choco install kicad -y --no-progress
+          $py = Get-ChildItem 'C:\Program Files\KiCad\*\bin\python.exe' | Sort-Object FullName | Select-Object -Last 1
+          if (-not $py) { throw "KiCad's python.exe not found" }
+          "KICAD_PYTHON=$($py.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          & $py.FullName -c "import sys, wx; print(sys.version); print(wx.version())"
+
+      - name: Bundle Python dependencies
+        shell: bash
+        run: ./scripts/bundle-dependencies.sh
+
+      - name: Run the KiCad-Python tests
+        shell: pwsh
+        env:
+          LCSC_SHOT_DIR: ${{ github.workspace }}\screenshots
+        run: python scripts/run-tests.py ipc_prep kicad_host bundled_libs footprint_viewer search_and_speed
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-screenshots
+          path: screenshots/
+          if-no-files-found: ignore

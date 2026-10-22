@@ -1,0 +1,186 @@
+"""
+The footprint details window in a real WebView, under KiCad's own Python:
+the page loads with the pads, the ruler measures the right distance from
+real mouse events, the 3D model is pushed in and (where the engine has
+WebGL) rendered. Offline: the OBJ download is stubbed.
+
+This is the test the Windows CI job exists for. On Windows wx defaults to
+the Internet Explorer engine, which has no WebGL; the dialog asks for Edge
+(WebView2), and this test reports which one it got (the user agent says).
+WebGL is required only on engines that have it (Edge, WebKit).
+
+With LCSC_SHOT_DIR set, a screenshot of the 2D and 3D views is saved
+there (the CI job uploads them), so a person can look at the result.
+
+Skips without KiCad's Python. Run with: python3 tests/test_footprint_viewer_webview.py
+"""
+import json
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+REPO = Path(__file__).parent.parent
+sys.path.insert(0, str(REPO / "tests"))
+from kicad_python import kicad_python, no_window_restore   # noqa: E402
+
+PLUGINS = REPO / "plugins"
+
+# An LQFN-ish footprint: four 0.4 mm-pitch pads (canvas units, 1 = 0.254 mm)
+# and a 3D model reference; the "download" returns a 2 mm cube.
+PADS = [
+    "PAD~RECT~3970.768~3002.7565~3.3465~0.7874~1~~1~0~3969.0947 3002.3628 3972.4411 3002.3628 "
+    "3972.4411 3003.1502 3969.0947 3003.1502~0~gge1~0~~Y~0~0~0.1969~3",
+    "PAD~RECT~3970.768~3004.3315~3.3465~0.7874~1~~2~0~3969.0947 3003.9378 3972.4411 3003.9378 "
+    "3972.4411 3004.7252 3969.0947 3004.7252~0~gge2~0~~Y~0~0~0.1969~3",
+    "PAD~RECT~3970.768~3005.9065~3.3465~0.7874~1~~3~0~~0~gge3~0~~Y~0~0~0.1969~3",
+    "PAD~RECT~3984.252~3012.9925~12.2047~12.2047~1~~57~0~~0~gge4~0~~Y~0~0~0.1969~3",
+]
+SVGNODE = ('SVGNODE~{"gId":"g1","nodeName":"g","nodeType":1,"layerid":"19","attrs":{"c_width":"8","c_height":"8",'
+           '"z":"0","c_rotation":"0,0,0","uuid":"testcube000000000000000000000000","c_origin":"3984.252,3012.9925",'
+           '"title":"CUBE"}}')
+CUBE_OBJ = "\n".join([
+    "v -1 -1 0", "v 1 -1 0", "v 1 1 0", "v -1 1 0", "v -1 -1 2", "v 1 -1 2", "v 1 1 2", "v -1 1 2",
+    "newmtl 1", "Kd 0.2 0.2 0.8", "d 0.0", "endmtl", "usemtl 1",
+    "f 1// 2// 3// 4//", "f 5// 6// 7// 8//", "f 1// 2// 6// 5//", "f 2// 3// 7// 6//",
+    "f 3// 4// 8// 7//", "f 4// 1// 5// 8//", ""])
+SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="13mm" height="12mm" viewBox="3958 2987.8 51.4 50.3">'
+       '<rect x="3958" y="2987.8" width="51.4" height="50.3" fill="#000"/>'
+       '<rect x="3969.09" y="3002.36" width="3.35" height="0.79" fill="#f00"/>'
+       '<rect x="3969.09" y="3003.94" width="3.35" height="0.79" fill="#f00"/>'
+       '<rect x="3969.09" y="3005.51" width="3.35" height="0.79" fill="#f00"/>'
+       '<rect x="3978.15" y="3006.89" width="12.2" height="12.2" fill="#f00"/></svg>')
+
+SCRIPT = """
+import json, sys, time, tempfile, os
+from pathlib import Path
+sys.path.insert(0, {plugins!r})
+import wx
+app = wx.App()
+app.SetAssertMode(wx.APP_ASSERT_LOG)
+class Collect(wx.Log):
+    def __init__(self): super().__init__(); self.msgs = []
+    def DoLogTextAtLevel(self, level, msg): self.msgs.append(msg)
+col = Collect(); wx.Log.SetActiveTarget(col)
+
+import lcsc_manager
+import lcsc_manager.utils.config as cfgmod
+from lcsc_manager.utils.config import Config
+cfgmod._config_instance = Config(config_path=Path(tempfile.mkdtemp()) / "g.json")
+from lcsc_manager.converters import model_3d_converter
+model_3d_converter.Model3DConverter._download_obj = lambda self, url: {obj!r}
+from lcsc_manager.dialog_footprint_detail import FootprintDetailDialog
+
+data = {{"easyeda_data": {{"packageDetail": {{"dataStr": {{
+    "head": {{"x": 3984.252, "y": 3012.9925}}, "shape": {pads!r} + [{svgnode!r}]}}}}}}}}
+d = FootprintDetailDialog(None, "C1", "TEST", {svg!r},
+                          {{"x": 3968, "y": 2997.8, "width": 31.4, "height": 30.3}},
+                          component_data=data, mesh_cache={{}})
+out = {{"webview": d.webview is not None}}
+if d.webview is None:
+    print(json.dumps(out)); sys.exit(0)
+d.Show()
+
+def pump(sec):
+    end = time.time() + sec
+    while time.time() < end:
+        app.Yield(); time.sleep(0.03)
+
+def js(code):
+    r = d.webview.RunScript(code)
+    return r if isinstance(r, tuple) else (True, r)
+
+def shot(name):
+    folder = os.environ.get("LCSC_SHOT_DIR")
+    if not folder: return
+    d.Raise(); pump(0.7)
+    r = d.GetScreenRect()
+    try:
+        bmp = wx.ScreenDC().GetAsBitmap().GetSubBitmap(wx.Rect(r.x, r.y, r.width, r.height))
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        bmp.SaveFile(str(Path(folder) / name), wx.BITMAP_TYPE_PNG)
+    except Exception as e:
+        out.setdefault("shot_errors", []).append(str(e))
+
+pump(1.0)
+try:
+    out["user_agent"] = d.webview.GetUserAgent()
+except Exception as e:
+    out["user_agent"] = "? " + str(e)
+val = None
+for _ in range(600):
+    pump(0.1)
+    ok, val = js("JSON.stringify(window.lcscDebug ? window.lcscDebug() : null)")
+    if ok and val and val != "null" and json.loads(val)["status"] in ("ready", "failed", "none"):
+        break
+out["runscript"] = bool(ok)
+out["loaded"] = json.loads(val) if ok and val and val != "null" else None
+
+measure = '''(function(){{
+  var svg = document.querySelector('#view2d svg.world');
+  function ev(t, x, y, tg){{ var p = svg.createSVGPoint(); p.x = x; p.y = y; var c = p.matrixTransform(svg.getScreenCTM());
+    var e = document.createEvent('MouseEvents');
+    e.initMouseEvent(t, true, true, window, 0, c.x, c.y, c.x, c.y, false, false, false, false, 0, null);
+    (tg || svg).dispatchEvent(e); }}
+  document.getElementById('bmeasure').click();
+  var a = DATA.pads[0], b = DATA.pads[1];
+  ev('mousemove', a.cx + 0.3, a.cy + 0.3); ev('mousedown', a.cx + 0.3, a.cy + 0.3); ev('mouseup', a.cx + 0.3, a.cy + 0.3, window);
+  ev('mousemove', b.cx - 0.3, b.cy + 0.2); ev('mousedown', b.cx - 0.3, b.cy + 0.2); ev('mouseup', b.cx - 0.3, b.cy + 0.2, window);
+  return document.getElementById('status').textContent;
+}})()'''
+ok, val = js(measure); out["measure"] = val if ok else None
+shot("footprint-2d.png")
+js("document.getElementById('b3d').click(); 'ok'"); pump(2.0)
+ok, val = js("JSON.stringify(window.lcscDebug())"); out["view3d"] = json.loads(val) if ok else None
+shot("footprint-3d.png")
+out["wx_log"] = [m for m in col.msgs if "PgmOrNull" not in m]
+d.Destroy()
+print("RESULT " + json.dumps(out))
+"""
+
+
+def test_footprint_viewer_in_a_real_webview():
+    python = kicad_python()
+    if not python.exists():
+        print("test_footprint_viewer_in_a_real_webview: SKIP (no KiCad python)")
+        return
+    code = SCRIPT.format(plugins=str(PLUGINS), obj=CUBE_OBJ, pads=PADS, svgnode=SVGNODE, svg=SVG)
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("KICAD_API_TOKEN", "KICAD_API_SOCKET", "PYTHONPATH", "PYTHONHOME")}
+    env["KICAD_API_TOKEN"] = "t"            # no SWIG registration attempt
+    run = subprocess.run([str(python), "-c", textwrap.dedent(code), *no_window_restore()],
+                         env=env, capture_output=True, text=True, timeout=300)
+    assert run.returncode == 0, run.stdout[-1500:] + run.stderr[-1500:]
+    line = [l for l in run.stdout.splitlines() if l.startswith("RESULT ")]
+    assert line, run.stdout[-1500:] + run.stderr[-1500:]
+    out = json.loads(line[-1][len("RESULT "):])
+    print("  engine:", out.get("user_agent"))
+    if not out["webview"]:
+        print("test_footprint_viewer_in_a_real_webview: SKIP (no WebView backend)")
+        return
+    assert out["runscript"], "RunScript is not available on this wx"
+    loaded = out["loaded"]
+    assert loaded and loaded["pads"] == 4 and loaded["snaps"] >= 12, out
+    assert loaded["status"] == "ready", out            # the (stubbed) model arrived
+    assert out["measure"] and "0.400 mm" in out["measure"], out["measure"]
+    v3 = out["view3d"]
+    print("  3D:", v3)
+    assert v3["status"] == "ready"
+    ua = out.get("user_agent") or ""
+    has_webgl_engine = "Edg/" in ua or "AppleWebKit" in ua or "Gecko/" in ua
+    if has_webgl_engine:
+        assert v3["gl"] and v3["mesh"] and v3["parts"] == 1 and v3["tex"], v3
+        # The 2 mm cube sits at the centre of the view, so the middle pixel
+        # is its blue-ish top, lit, not the grey background.
+        r, g, b = v3["centre"]
+        assert b > r + 40 and b > g + 40, v3["centre"]
+    else:
+        print("  (engine without WebGL: 3D rendering not checked)")
+    assert out["wx_log"] == [], out["wx_log"]
+    print("test_footprint_viewer_in_a_real_webview: PASS")
+
+
+if __name__ == "__main__":
+    test_footprint_viewer_in_a_real_webview()
+    print("\nAll footprint viewer WebView tests passed.")

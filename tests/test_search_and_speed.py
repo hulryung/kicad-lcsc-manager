@@ -35,8 +35,9 @@ from lcsc_manager.utils import logger as logmod
 from lcsc_manager.utils.ui import clamp_size
 
 PLUGIN_DIR = REPO / "plugins" / "lcsc_manager"
-KICAD_PYTHON = Path("/Applications/KiCad/KiCad.app/Contents/Frameworks/"
-                    "Python.framework/Versions/Current/bin/python3")
+sys.path.insert(0, str(Path(__file__).parent))
+from kicad_python import kicad_python, no_window_restore   # noqa: E402
+KICAD_PYTHON = kicad_python()
 EASYEDA = "https://easyeda.com/api/products/C1/components"
 JLCPCB = LCSCAPIClient.JLCPCB_SEARCH_URL
 
@@ -423,7 +424,7 @@ def test_search_dialog_under_kicad_python():
     env.update(HOME=home, KICAD_CONFIG_HOME=home, KICAD_API_TOKEN="t")   # no SWIG registration
     run = subprocess.run([str(KICAD_PYTHON), "-c",
                           DIALOG_SCRIPT.format(plugins=str(REPO / "plugins")),
-                          "-ApplePersistenceIgnoreState", "YES"],
+                          *no_window_restore()],
                          capture_output=True, text=True, env=env, timeout=120)
     out = run.stdout
     assert run.returncode == 0, run.stderr[-1500:]

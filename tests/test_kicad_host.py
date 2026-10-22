@@ -25,8 +25,9 @@ from lcsc_manager.utils.kicad_host import (
     get_host, set_host, substitute_vars,
 )
 
-KICAD_PYTHON = Path("/Applications/KiCad/KiCad.app/Contents/Frameworks/"
-                    "Python.framework/Versions/Current/bin/python3")
+sys.path.insert(0, str(Path(__file__).parent))
+from kicad_python import kicad_python, no_window_restore   # noqa: E402
+KICAD_PYTHON = kicad_python()
 
 
 # ─── settings folder, computed as KiCad does ──────────────────────────
