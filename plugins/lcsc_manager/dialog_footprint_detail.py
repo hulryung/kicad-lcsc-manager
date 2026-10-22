@@ -63,6 +63,9 @@ class FootprintDetailDialog(wx.Dialog):
         # What arrives early waits here until the page answers.
         self._pending = None
         self._flush_tries = 0
+        # RunScript on a page that is still loading blocks the main thread
+        # (WebKit), so nothing is run before EVT_WEBVIEW_LOADED.
+        self._page_loaded = False
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.webview = new_webview(self)
@@ -96,6 +99,7 @@ class FootprintDetailDialog(wx.Dialog):
         except Exception as e:
             logger.error(f"Footprint viewer page could not be built: {e}", exc_info=True)
             html = f"<html><body><p>The footprint viewer could not be built: {e}</p></body></html>"
+        self._page_loaded = False
         self.webview.SetPage(html, "")
 
     def _page_ready(self) -> bool:
@@ -104,6 +108,8 @@ class FootprintDetailDialog(wx.Dialog):
         run = getattr(self.webview, "RunScript", None)
         if run is None:
             return True                       # no RunScript: SetPage path
+        if not self._page_loaded:
+            return False
         try:
             result = run("typeof window.lcscSetModel")
         except Exception:
@@ -114,6 +120,7 @@ class FootprintDetailDialog(wx.Dialog):
 
     def _on_page_loaded(self, event):
         event.Skip()
+        self._page_loaded = True
         self._flush_tries = 0
         self._flush_pending()
 

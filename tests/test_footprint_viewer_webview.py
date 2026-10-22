@@ -108,16 +108,21 @@ d.Show()
 
 def pump(sec):
     # Dispatch window messages for `sec` seconds: WebView2's asynchronous
-    # start-up completes through the message loop. (MainLoop never
-    # returned on Windows; Yield() dispatched nothing to WebView2.)
+    # start-up completes through the message loop. MainLoop never returned
+    # on Windows, Yield() dispatched nothing to WebView2, and Dispatch()
+    # blocks on macOS even after Pending(); DispatchTimeout does neither.
     loop = wx.GUIEventLoop()
+    previous = wx.EventLoop.GetActive()
     wx.EventLoop.SetActive(loop)
     end = time.time() + sec
     while time.time() < end:
-        while loop.Pending():
-            loop.Dispatch()
+        for _ in range(100):
+            if loop.DispatchTimeout(1) != 1:
+                break
         loop.ProcessIdle()
-        time.sleep(0.01)
+        app.ProcessPendingEvents()
+        time.sleep(0.005)
+    wx.EventLoop.SetActive(previous)
 
 def stage(name):
     print("STAGE " + name, flush=True)
@@ -218,9 +223,10 @@ def _run_viewer(python, backend=None):
                              env=env, capture_output=True, encoding="utf-8", errors="replace",
                              timeout=240)
     except subprocess.TimeoutExpired as e:
+        def text(data):
+            return data.decode("utf-8", "replace") if isinstance(data, bytes) else (data or "")
         raise AssertionError("the viewer script hung; its output so far:\n"
-                             + (e.stdout or b"").decode("utf-8", "replace")[-2000:]
-                             + (e.stderr or b"").decode("utf-8", "replace")[-1000:])
+                             + text(e.stdout)[-2000:] + text(e.stderr)[-1000:])
     assert run.returncode == 0, run.stdout[-1500:] + run.stderr[-1500:]
     line = [l for l in run.stdout.splitlines() if l.startswith("RESULT ")]
     assert line, run.stdout[-1500:] + run.stderr[-1500:]
