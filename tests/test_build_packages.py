@@ -165,6 +165,7 @@ def test_builds_both_zips_with_their_own_metadata():
         assert entry["runtime"] == runtime
         assert f'__version__ = "{entry["version"]}"' in init
         assert "resources/icon.png" in names and "plugins/lib/requests/__init__.py" in names
+        assert "plugins/plugin_resources/footprint_viewer.html" in names   # the Details window
         assert not [n for n in names if "__pycache__" in n or n.endswith(".pyc")]
         assert build["download_sha256"] == pcm_builds.sha256_of(zip_path)
         assert build["download_size"] == zip_path.stat().st_size

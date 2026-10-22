@@ -23,6 +23,7 @@ except ImportError:
 from .api.lcsc_api import ca_bundle, get_api_client, LCSCAPIError, LCSCRateLimitError
 from .library.library_manager import LibraryManager
 from .utils.ui import fit_to_screen, status_colour
+from .dialog_footprint_detail import FootprintDetailDialog
 from .utils.logger import get_logger
 from .utils.config import get_config
 from .utils.session import ImportSession, REOPEN_HINT
@@ -68,6 +69,10 @@ class LCSCManagerSearchDialog(wx.Dialog):
         # Set when the dialog closes: worker threads may still report back.
         self._closing = False
         self.preview_cache = {}  # Cache previews by uuid
+        # Footprint detail window: what the footprint tab currently shows
+        # (so the window can open it), and parsed 3D meshes by model uuid.
+        self._detail_source = None
+        self._mesh_cache: Dict[str, Dict[str, Any]] = {}
 
         # Async preview loading
         self.preview_thread = None  # Current preview loading thread
@@ -307,6 +312,19 @@ class LCSCManagerSearchDialog(wx.Dialog):
         footprint_panel = wx.Panel(self.preview_notebook)
         footprint_sizer = wx.BoxSizer(wx.VERTICAL)
         self.footprint_webview = self._new_preview_webview(footprint_panel, footprint_sizer)
+        if self.footprint_webview is not None:
+            detail_row = wx.BoxSizer(wx.HORIZONTAL)
+            detail_row.AddStretchSpacer()
+            self.footprint_detail_btn = wx.Button(footprint_panel, label="Details…")
+            self.footprint_detail_btn.SetToolTip(
+                "Open the footprint in a larger window: zoom in, measure "
+                "distances between pads, and see the 3D model on it.")
+            self.footprint_detail_btn.Bind(wx.EVT_BUTTON, self._on_footprint_detail)
+            self.footprint_detail_btn.Enable(False)
+            detail_row.Add(self.footprint_detail_btn, 0, wx.RIGHT | wx.BOTTOM, 5)
+            footprint_sizer.Add(detail_row, 0, wx.EXPAND)
+        else:
+            self.footprint_detail_btn = None
         footprint_panel.SetSizer(footprint_sizer)
         self.preview_notebook.AddPage(footprint_panel, "Footprint")
 
@@ -1002,6 +1020,7 @@ class LCSCManagerSearchDialog(wx.Dialog):
         fp_msg = footprint_placeholder or placeholder_msg
         self._set_webview_svg(self.symbol_webview, symbol_svg, placeholder_msg, bbox=symbol_bbox)
         self._set_webview_svg(self.footprint_webview, footprint_svg, fp_msg, bbox=footprint_bbox)
+        self._set_detail_source(footprint_svg, footprint_bbox)
 
         if specs_text is not None:
             self.specs_text.SetValue(specs_text)
@@ -1009,6 +1028,44 @@ class LCSCManagerSearchDialog(wx.Dialog):
         self.preview_notebook.Layout()
         self.Layout()
         self.Refresh()
+
+    def _set_detail_source(self, footprint_svg, footprint_bbox):
+        """Remember what the footprint tab shows, for the Details window."""
+        result = self.selected_component or {}
+        lcsc_id = result.get("uuid") or (result.get("lcsc") or {}).get("number")
+        if footprint_svg and lcsc_id:
+            self._detail_source = {
+                "lcsc_id": lcsc_id,
+                "title": result.get("title") or result.get("package") or "",
+                "svg": footprint_svg,
+                "bbox": footprint_bbox,
+            }
+        else:
+            self._detail_source = None
+        if self.footprint_detail_btn is not None:
+            self.footprint_detail_btn.Enable(self._detail_source is not None)
+
+    def _on_footprint_detail(self, event):
+        """Open the footprint detail window for the previewed part."""
+        source = self._detail_source
+        if not source:
+            return
+        lcsc_id = source["lcsc_id"]
+
+        def component_data():
+            cached = self.preview_cache.get(lcsc_id) or {}
+            data = cached.get("component_data")
+            return data if data is not None else self.api_client.search_component(lcsc_id)
+
+        cached = (self.preview_cache.get(lcsc_id) or {}).get("component_data")
+        dialog = FootprintDetailDialog(
+            self, lcsc_id, source["title"], source["svg"], source["bbox"],
+            component_data=cached, get_component_data=component_data,
+            mesh_cache=self._mesh_cache)
+        try:
+            dialog.ShowModal()
+        finally:
+            dialog.Destroy()
 
     def _update_specs(self, specs_text: str):
         """Update only the specifications text (called when component data finishes loading)"""

@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>Footprint</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    font-family: -apple-system, "Segoe UI", sans-serif; font-size: 13px; background: #fff; color: #222; }
+  #bar { position: absolute; left: 0; right: 0; top: 0; height: 36px; display: flex; align-items: center;
+    padding: 0 8px; background: #f3f3f3; border-bottom: 1px solid #ccc; box-sizing: border-box; white-space: nowrap; }
+  #bar button, #bar label { margin-right: 6px; font-size: 12px; }
+  #bar button { padding: 3px 9px; border: 1px solid #aaa; border-radius: 4px; background: #fff; cursor: pointer; }
+  #bar button.on { background: #2a6fd6; color: #fff; border-color: #2a6fd6; }
+  #bar .sep { width: 1px; height: 22px; background: #ccc; margin: 0 8px; }
+  #bar .title { margin-left: auto; color: #555; overflow: hidden; text-overflow: ellipsis; }
+  #stage { position: absolute; left: 0; right: 0; top: 36px; bottom: 26px; }
+  #view2d, #view3d { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  #view2d svg.world { width: 100%; height: 100%; display: block; background: #fff; }
+  #view2d.measure svg.world { cursor: crosshair; }
+  #view2d.pan svg.world { cursor: grabbing; }
+  #gl { width: 100%; height: 100%; display: block; background: #e9ecef; cursor: grab; }
+  #status { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; line-height: 26px; padding: 0 8px;
+    background: #f3f3f3; border-top: 1px solid #ccc; box-sizing: border-box; color: #333; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  #status b { color: #000; }
+  #hint { position: absolute; left: 10px; top: 46px; background: rgba(255,255,255,0.9); border: 1px solid #ccc;
+    border-radius: 4px; padding: 4px 8px; font-size: 12px; color: #444; pointer-events: none; }
+  #msg3d { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: #555; font-size: 14px;
+    pointer-events: none; }
+  .hidden { display: none !important; }
+  .grid-major { stroke: #9a9a9a; stroke-opacity: 0.7; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .grid-minor { stroke: #9a9a9a; stroke-opacity: 0.3; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .origin { stroke: #c0392b; stroke-width: 1; vector-effect: non-scaling-stroke; fill: none; }
+  .ruler { stroke: #d6336c; stroke-width: 2; vector-effect: non-scaling-stroke; fill: none; }
+  .ruler-end { fill: #d6336c; stroke: #fff; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .ruler-dim { stroke: #d6336c; stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; fill: none; }
+  .snap { fill: none; stroke: #1c7ed6; stroke-width: 2; vector-effect: non-scaling-stroke; }
+  /* font-size and stroke-width are set per element, in SVG user units */
+  .label { font-family: -apple-system, "Segoe UI", sans-serif; font-weight: 600; fill: #d6336c; paint-order: stroke;
+    stroke: #fff; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="b2d" class="on">2D</button>
+  <button id="b3d">3D</button>
+  <span class="sep"></span>
+  <span id="tools2d">
+    <button id="bmeasure" title="Click two points to measure. Points snap to pad centres and corners. Esc clears.">Measure</button>
+    <button id="bfit" title="Fit the footprint in the window">Fit</button>
+    <label><input type="checkbox" id="cgrid" checked> Grid</label>
+    <label><input type="checkbox" id="cmil"> mil</label>
+  </span>
+  <span id="tools3d" class="hidden">
+    <button id="btop">Top</button>
+    <button id="biso">Iso</button>
+    <button id="bfit3d">Fit</button>
+    <label><input type="checkbox" id="cfp" checked> Footprint</label>
+    <label><input type="checkbox" id="cmodel" checked> Model</label>
+  </span>
+  <span class="title" id="title"></span>
+</div>
+<div id="stage">
+  <div id="view2d">
+    <svg class="world" xmlns="http://www.w3.org/2000/svg">
+      <g id="art"></g>
+      <g id="grid" style="pointer-events:none"></g>
+      <g id="originmark"></g>
+      <g id="overlay"></g>
+    </svg>
+    <div id="hint">Drag to pan, wheel to zoom. Measure: click two points.</div>
+  </div>
+  <div id="view3d" class="hidden">
+    <canvas id="gl"></canvas>
+    <div id="msg3d"></div>
+  </div>
+</div>
+<div id="status">&nbsp;</div>
+
+<script>
+var DATA = /*__DATA__*/null;
+
+(function () {
+  'use strict';
+  var UNIT = DATA.unit_mm;                 // mm per canvas unit
+  var useMil = false;
+  var $ = function (id) { return document.getElementById(id); };
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  $('title').textContent = DATA.lcsc_id + (DATA.title ? '  ' + DATA.title : '');
+
+  function fmt(mm, digits) {
+    if (useMil) return (mm / 0.0254).toFixed(digits === undefined ? 1 : digits) + ' mil';
+    return mm.toFixed(digits === undefined ? 3 : digits) + ' mm';
+  }
+  function status(html) { $('status').innerHTML = html || '&nbsp;'; }
+
+  // --------------------------------------------------------------- 2D view
+  function is3dHidden() { return / hidden\b/.test(' ' + $('view3d').className); }
+  var world = document.querySelector('#view2d svg.world');
+  var view = { x: DATA.view.x, y: DATA.view.y, w: DATA.view.w, h: DATA.view.h };
+  var fitView = { x: view.x, y: view.y, w: view.w, h: view.h };
+  var origin = DATA.origin;            // canvas units, may be null
+  if (!origin) origin = { x: view.x + view.w / 2, y: view.y + view.h / 2 };
+
+  // EasyEDA's drawing, nested so that its coordinates are the world's.
+  (function placeArt() {
+    var holder = document.createElement('div');
+    holder.innerHTML = DATA.svg;
+    var inner = holder.querySelector('svg');
+    if (!inner) return;
+    var vb = (inner.getAttribute('viewBox') || '').split(/[\s,]+/).map(parseFloat);
+    if (vb.length !== 4 || isNaN(vb[2]) || isNaN(vb[3])) return;
+    inner.setAttribute('x', vb[0]); inner.setAttribute('y', vb[1]);
+    inner.setAttribute('width', vb[2]); inner.setAttribute('height', vb[3]);
+    inner.setAttribute('preserveAspectRatio', 'none');
+    inner.removeAttribute('style');
+    $('art').appendChild(document.importNode(inner, true));
+  })();
+
+  function applyView() {
+    var r = world.getBoundingClientRect();
+    // Keep the aspect of the window: widen the viewBox on the narrower axis.
+    var aspect = r.width / Math.max(1, r.height);
+    var w = view.w, h = view.h;
+    if (w / h < aspect) w = h * aspect; else h = w / aspect;
+    var cx = view.x + view.w / 2, cy = view.y + view.h / 2;
+    world.setAttribute('viewBox', (cx - w / 2) + ' ' + (cy - h / 2) + ' ' + w + ' ' + h);
+    drawGrid(cx - w / 2, cy - h / 2, w, h, r.width);
+    drawOrigin(w);
+  }
+
+  function pxPerUnit() {
+    var vb = world.viewBox.baseVal;
+    return world.getBoundingClientRect().width / vb.width;
+  }
+
+  function toWorld(ev) {
+    var pt = world.createSVGPoint();
+    pt.x = ev.clientX; pt.y = ev.clientY;
+    var m = world.getScreenCTM();
+    if (!m) return { x: 0, y: 0 };
+    var p = pt.matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  }
+
+  function drawGrid(x, y, w, h, pxWidth) {
+    var g = $('grid');
+    while (g.firstChild) g.removeChild(g.firstChild);
+    if (!$('cgrid').checked) return;
+    var pxPerMm = pxWidth / (w * UNIT);
+    // Pick a grid step (mm) that leaves at least ~12 px between lines.
+    var steps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50];
+    var major = 1, minor = 0;
+    for (var i = 0; i < steps.length; i++) { if (steps[i] * pxPerMm >= 12) { minor = steps[i]; break; } }
+    if (!minor) return;
+    major = minor * (minor === 0.25 || minor === 2.5 ? 4 : minor === 0.5 ? 2 : 5);
+    var ux = minor / UNIT;                // step in canvas units
+    var x0 = origin.x + Math.floor((x - origin.x) / ux) * ux;
+    var y0 = origin.y + Math.floor((y - origin.y) / ux) * ux;
+    var minorPath = '', majorPath = '', ratio = Math.round(major / minor);
+    var nx = Math.ceil((x + w - x0) / ux), ny = Math.ceil((y + h - y0) / ux);
+    if (nx > 2000 || ny > 2000) return;
+    for (var ix = 0; ix <= nx; ix++) {
+      var gx = x0 + ix * ux, kx = Math.round((gx - origin.x) / ux);
+      if (kx % ratio === 0) majorPath += 'M' + gx + ' ' + y + 'V' + (y + h);
+      else minorPath += 'M' + gx + ' ' + y + 'V' + (y + h);
+    }
+    for (var iy = 0; iy <= ny; iy++) {
+      var gy = y0 + iy * ux, ky = Math.round((gy - origin.y) / ux);
+      if (ky % ratio === 0) majorPath += 'M' + x + ' ' + gy + 'H' + (x + w);
+      else minorPath += 'M' + x + ' ' + gy + 'H' + (x + w);
+    }
+    var pm = document.createElementNS(SVG_NS, 'path'); pm.setAttribute('d', minorPath); pm.setAttribute('class', 'grid-minor');
+    var pM = document.createElementNS(SVG_NS, 'path'); pM.setAttribute('d', majorPath); pM.setAttribute('class', 'grid-major');
+    g.appendChild(pm); g.appendChild(pM);
+    $('hint').textContent = 'Grid ' + fmt(minor, minor < 1 ? 2 : 0) + ' (bold every ' + fmt(major, 0) + '). Drag to pan, wheel to zoom.';
+  }
+
+  function drawOrigin(w) {
+    var g = $('originmark');
+    while (g.firstChild) g.removeChild(g.firstChild);
+    var s = w * 0.03;
+    var p = document.createElementNS(SVG_NS, 'path');
+    p.setAttribute('d', 'M' + (origin.x - s) + ' ' + origin.y + 'H' + (origin.x + s) +
+                        'M' + origin.x + ' ' + (origin.y - s) + 'V' + (origin.y + s));
+    p.setAttribute('class', 'origin');
+    g.appendChild(p);
+  }
+
+  // Snap targets: pad centres and corners.
+  var snaps = [];
+  DATA.pads.forEach(function (pad) {
+    snaps.push({ x: pad.cx, y: pad.cy, pad: pad, kind: 'centre' });
+    pad.points.forEach(function (pt) { snaps.push({ x: pt[0], y: pt[1], pad: pad, kind: 'corner' }); });
+  });
+  function nearestSnap(p, radiusPx) {
+    var best = null, bestD = (radiusPx / pxPerUnit()) * (radiusPx / pxPerUnit());
+    for (var i = 0; i < snaps.length; i++) {
+      var dx = snaps[i].x - p.x, dy = snaps[i].y - p.y, d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = snaps[i]; }
+    }
+    return best;
+  }
+  function padAt(p) {
+    for (var i = 0; i < DATA.pads.length; i++) {
+      var pad = DATA.pads[i];
+      if (pad.points.length >= 3 ? pointInPoly(p, pad.points)
+                                 : (Math.abs(p.x - pad.cx) <= pad.w / 2 && Math.abs(p.y - pad.cy) <= pad.h / 2)) return pad;
+    }
+    return null;
+  }
+  function pointInPoly(p, poly) {
+    var inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if (((yi > p.y) !== (yj > p.y)) && (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+
+  // Measuring.
+  var measuring = false, measure = { a: null, b: null, done: false };
+  var overlay = $('overlay');
+  function clearOverlay() { while (overlay.firstChild) overlay.removeChild(overlay.firstChild); }
+  function mmOf(p) { return { x: (p.x - origin.x) * UNIT, y: -(p.y - origin.y) * UNIT }; }
+  function drawMeasure(cursorSnap) {
+    clearOverlay();
+    var a = measure.a, b = measure.b;
+    if (cursorSnap && !measure.done) {
+      var c = document.createElementNS(SVG_NS, 'circle');
+      c.setAttribute('cx', cursorSnap.x); c.setAttribute('cy', cursorSnap.y);
+      c.setAttribute('r', 6 / pxPerUnit()); c.setAttribute('class', 'snap');
+      overlay.appendChild(c);
+    }
+    if (!a) return;
+    var r = 4 / pxPerUnit();
+    [a, b].forEach(function (p) {
+      if (!p) return;
+      var c = document.createElementNS(SVG_NS, 'circle');
+      c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', r); c.setAttribute('class', 'ruler-end');
+      overlay.appendChild(c);
+    });
+    if (!b) return;
+    var line = document.createElementNS(SVG_NS, 'path');
+    line.setAttribute('d', 'M' + a.x + ' ' + a.y + 'L' + b.x + ' ' + b.y); line.setAttribute('class', 'ruler');
+    overlay.appendChild(line);
+    var dim = document.createElementNS(SVG_NS, 'path');
+    dim.setAttribute('d', 'M' + a.x + ' ' + a.y + 'H' + b.x + 'V' + b.y); dim.setAttribute('class', 'ruler-dim');
+    overlay.appendChild(dim);
+    var am = mmOf(a), bm = mmOf(b);
+    var dx = bm.x - am.x, dy = bm.y - am.y, d = Math.sqrt(dx * dx + dy * dy);
+    var t = document.createElementNS(SVG_NS, 'text');
+    t.setAttribute('x', (a.x + b.x) / 2); t.setAttribute('y', (a.y + b.y) / 2 - 8 / pxPerUnit());
+    t.setAttribute('class', 'label'); t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('font-size', 12 / pxPerUnit());
+    t.setAttribute('stroke-width', 3 / pxPerUnit());
+    t.textContent = fmt(d);
+    overlay.appendChild(t);
+    status('<b>' + fmt(d) + '</b> &nbsp; Δx ' + fmt(Math.abs(dx)) + ' &nbsp; Δy ' + fmt(Math.abs(dy)) +
+           ' &nbsp; from (' + fmt(am.x) + ', ' + fmt(am.y) + ') to (' + fmt(bm.x) + ', ' + fmt(bm.y) + ')');
+  }
+
+  function setMeasure(on) {
+    measuring = on;
+    $('bmeasure').className = on ? 'on' : '';
+    $('view2d').className = on ? 'measure' : '';
+    measure = { a: null, b: null, done: false };
+    drawMeasure(null);
+    if (on) status('Measure: click the first point (snaps to pad centres and corners), then the second. Shift+drag pans. Esc clears.');
+    else status('');
+  }
+
+  var drag = null;
+  world.addEventListener('mousedown', function (ev) {
+    if (ev.button !== 0 || !measuring || ev.shiftKey) {
+      drag = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y, moved: false };
+      $('view2d').className = (measuring ? 'measure ' : '') + 'pan';
+      ev.preventDefault();
+    }
+  });
+  window.addEventListener('mousemove', function (ev) {
+    if (drag) {
+      var vb = world.viewBox.baseVal;
+      var scale = vb.width / world.getBoundingClientRect().width;
+      view.x = drag.vx - (ev.clientX - drag.x) * scale;
+      view.y = drag.vy - (ev.clientY - drag.y) * scale;
+      if (Math.abs(ev.clientX - drag.x) + Math.abs(ev.clientY - drag.y) > 2) drag.moved = true;
+      applyView(); drawMeasure(null);
+      return;
+    }
+    if (!is3dHidden()) return;
+    var p = toWorld(ev);
+    var snap = nearestSnap(p, 10);
+    if (measuring) {
+      var q = snap ? { x: snap.x, y: snap.y } : p;
+      if (measure.a && !measure.done) { measure.b = q; drawMeasure(snap); }
+      else drawMeasure(measure.done ? null : snap);
+      if (!measure.a || measure.done) {
+        var m = mmOf(q);
+        status((snap ? 'Pad ' + snap.pad.number + ' ' + snap.kind + ' ' : '') + '(' + fmt(m.x) + ', ' + fmt(m.y) + ')');
+      }
+    } else {
+      var pad = padAt(p), mm = mmOf(p);
+      status((pad ? '<b>Pad ' + pad.number + '</b> ' + fmt(pad.w * UNIT, 3) + ' × ' + fmt(pad.h * UNIT, 3) +
+              ' at (' + fmt((pad.cx - origin.x) * UNIT) + ', ' + fmt(-(pad.cy - origin.y) * UNIT) + ') &nbsp; ' : '') +
+             'cursor (' + fmt(mm.x) + ', ' + fmt(mm.y) + ')');
+    }
+  });
+  window.addEventListener('mouseup', function (ev) {
+    if (drag) {
+      var moved = drag.moved; drag = null;
+      $('view2d').className = measuring ? 'measure' : '';
+      if (moved || !measuring || ev.button !== 0 || ev.shiftKey) return;
+    }
+    if (!measuring || ev.button !== 0) return;
+    if (ev.target.closest && ev.target.closest('#bar, #status')) return;
+    var p = toWorld(ev);
+    var snap = nearestSnap(p, 10);
+    var q = snap ? { x: snap.x, y: snap.y } : p;
+    if (!measure.a || measure.done) { measure = { a: q, b: null, done: false }; drawMeasure(null); }
+    else { measure.b = q; measure.done = true; drawMeasure(null); }
+  });
+  world.addEventListener('wheel', function (ev) {
+    ev.preventDefault();
+    var p = toWorld(ev);
+    var f = Math.pow(1.0015, ev.deltaY * (ev.deltaMode === 1 ? 20 : 1));
+    f = Math.min(1.6, Math.max(0.625, f));
+    var nw = Math.min(fitView.w * 20, Math.max(fitView.w / 400, view.w * f));
+    var k = nw / view.w;
+    view.x = p.x - (p.x - view.x) * k; view.y = p.y - (p.y - view.y) * k;
+    view.w *= k; view.h *= k;
+    applyView(); drawMeasure(null);
+  }, { passive: false });
+  window.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && measuring) { measure = { a: null, b: null, done: false }; drawMeasure(null); status(''); }
+  });
+  $('bmeasure').onclick = function () { setMeasure(!measuring); };
+  $('bfit').onclick = function () { view = { x: fitView.x, y: fitView.y, w: fitView.w, h: fitView.h }; applyView(); drawMeasure(null); };
+  $('cgrid').onchange = function () { applyView(); };
+  $('cmil').onchange = function () { useMil = $('cmil').checked; applyView(); drawMeasure(null); };
+  window.addEventListener('resize', function () { applyView(); drawMeasure(null); if (gl) draw3d(); });
+
+  // --------------------------------------------------------------- 3D view
+  var canvas = $('gl'), gl = null, prog = null, mesh3d = null, fpTex = null, fpQuad = null;
+  var cam = { yaw: -0.6, pitch: 0.9, dist: 30, target: [0, 0, 0], fov: 35 };
+  var fpExtent = (function () {
+    // The drawing's extent in mm, relative to the origin, Y up.
+    var x0 = (view.x - origin.x) * UNIT, x1 = (view.x + view.w - origin.x) * UNIT;
+    var y0 = -(view.y + view.h - origin.y) * UNIT, y1 = -(view.y - origin.y) * UNIT;
+    return { x0: x0, x1: x1, y0: y0, y1: y1 };
+  })();
+
+  function initGL() {
+    if (gl !== null) return gl;
+    try { gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl'); } catch (e) { gl = null; }
+    if (!gl) { gl = false; $('msg3d').textContent = 'The 3D view needs WebGL, which this browser engine does not provide.'; return gl; }
+    var vs = 'attribute vec3 p; attribute vec3 n; attribute vec4 c; attribute vec2 t;' +
+      'uniform mat4 mvp; uniform mat4 mv; varying vec4 vc; varying vec3 vn; varying vec2 vt;' +
+      'void main(){ gl_Position = mvp * vec4(p,1.0); vn = mat3(mv) * n; vc = c; vt = t; }';
+    var fs = 'precision mediump float; varying vec4 vc; varying vec3 vn; varying vec2 vt;' +
+      'uniform sampler2D tex; uniform float useTex;' +
+      'void main(){ vec3 n = normalize(vn); float l = 0.35 + 0.65 * abs(dot(n, normalize(vec3(0.3, 0.5, 1.0))));' +
+      ' vec4 base = useTex > 0.5 ? texture2D(tex, vt) : vc; gl_FragColor = vec4(base.rgb * l, base.a); }';
+    function sh(type, src) { var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; }
+    prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(prog); gl.useProgram(prog);
+    prog.p = gl.getAttribLocation(prog, 'p'); prog.n = gl.getAttribLocation(prog, 'n');
+    prog.c = gl.getAttribLocation(prog, 'c'); prog.t = gl.getAttribLocation(prog, 't');
+    prog.mvp = gl.getUniformLocation(prog, 'mvp'); prog.mv = gl.getUniformLocation(prog, 'mv');
+    prog.useTex = gl.getUniformLocation(prog, 'useTex'); prog.tex = gl.getUniformLocation(prog, 'tex');
+    gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    buildFootprintQuad();
+    makeFootprintTexture();
+    return gl;
+  }
+
+  function buffer(data, size, attr) {
+    var b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+    return { buf: b, size: size, attr: attr, n: data.length / size };
+  }
+  function bind(b) { gl.bindBuffer(gl.ARRAY_BUFFER, b.buf); gl.enableVertexAttribArray(b.attr); gl.vertexAttribPointer(b.attr, b.size, gl.FLOAT, false, 0, 0); }
+
+  function buildFootprintQuad() {
+    var e = fpExtent, z = -0.002;
+    var pos = [e.x0, e.y0, z, e.x1, e.y0, z, e.x1, e.y1, z, e.x0, e.y0, z, e.x1, e.y1, z, e.x0, e.y1, z];
+    var uv = [0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0];
+    var nrm = [], col = [];
+    for (var i = 0; i < 6; i++) { nrm.push(0, 0, 1); col.push(1, 1, 1, 1); }
+    fpQuad = { p: buffer(pos, 3, prog.p), n: buffer(nrm, 3, prog.n), c: buffer(col, 4, prog.c), t: buffer(uv, 2, prog.t) };
+  }
+
+  function makeFootprintTexture() {
+    // Rasterise the drawing (with the opening viewBox) into a texture.
+    var holder = document.createElement('div'); holder.innerHTML = DATA.svg;
+    var inner = holder.querySelector('svg');
+    if (!inner) return;
+    var vb = (inner.getAttribute('viewBox') || '').split(/[\s,]+/).map(parseFloat);
+    var W = 1024, H = Math.round(W * view.h / view.w);
+    var outer = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="' +
+      view.x + ' ' + view.y + ' ' + view.w + ' ' + view.h + '"><rect x="' + view.x + '" y="' + view.y +
+      '" width="' + view.w + '" height="' + view.h + '" fill="#2d6a4f"/>' +
+      '<svg x="' + vb[0] + '" y="' + vb[1] + '" width="' + vb[2] + '" height="' + vb[3] + '" viewBox="' + vb.join(' ') +
+      '" preserveAspectRatio="none">' + inner.innerHTML + '</svg></svg>';
+    var img = new Image();
+    img.onload = function () {
+      var c = document.createElement('canvas'); c.width = W; c.height = H;
+      var ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, W, H);
+      fpTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, fpTex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+      try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c); } catch (e) { fpTex = null; return; }
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      draw3d();
+    };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(outer);
+  }
+
+  function rotXYZ(v, rx, ry, rz) {
+    // KiCad applies the model's rotation about Z, then Y, then X.
+    var r = Math.PI / 180, x = v[0], y = v[1], z = v[2], c, s, t;
+    c = Math.cos(rz * r); s = Math.sin(rz * r); t = x; x = c * t - s * y; y = s * t + c * y;
+    c = Math.cos(ry * r); s = Math.sin(ry * r); t = x; x = c * t + s * z; z = -s * t + c * z;
+    c = Math.cos(rx * r); s = Math.sin(rx * r); t = y; y = c * t - s * z; z = s * t + c * z;
+    return [x, y, z];
+  }
+
+  function setModel(model) {
+    DATA.model = model; DATA.model_status = model ? 'ready' : 'failed';
+    mesh3d = null;
+    if (!model) { if (!is3dHidden()) draw3d(); return; }
+    if (initGL() === false) return;
+    var pl = model.placement, V = model.vertices, F = model.faces;
+    var opaque = { p: [], n: [], c: [] }, clear = { p: [], n: [], c: [] };
+    var placed = new Array(V.length / 3);
+    for (var i = 0; i < V.length; i += 3) {
+      var v = rotXYZ([V[i] + pl.tx, V[i + 1] + pl.ty, V[i + 2]], pl.rx, pl.ry, pl.rz);
+      placed[i / 3] = [v[0], v[1], v[2] + pl.tz];
+    }
+    model.groups.forEach(function (g) {
+      var dst = g.alpha < 0.999 ? clear : opaque;
+      var col = [g.color[0], g.color[1], g.color[2], g.alpha];
+      for (var f = g.start; f < g.start + g.count; f++) {
+        var a = placed[F[f * 3]], b = placed[F[f * 3 + 1]], c = placed[F[f * 3 + 2]];
+        if (!a || !b || !c) continue;
+        var ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], wx = c[0] - a[0], wy = c[1] - a[1], wz = c[2] - a[2];
+        var nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+        var len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1; nx /= len; ny /= len; nz /= len;
+        dst.p.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+        dst.n.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
+        dst.c.push(col[0], col[1], col[2], col[3], col[0], col[1], col[2], col[3], col[0], col[1], col[2], col[3]);
+      }
+    });
+    mesh3d = { parts: [] };
+    [opaque, clear].forEach(function (part, idx) {
+      if (!part.p.length) return;
+      mesh3d.parts.push({ p: buffer(part.p, 3, prog.p), n: buffer(part.n, 3, prog.n), c: buffer(part.c, 4, prog.c), transparent: idx === 1 });
+    });
+    var bb = model.bbox;
+    mesh3d.height = (bb[2][1] - bb[2][0]) + pl.tz;
+    fit3d();
+    draw3d();
+  }
+
+  function fit3d() {
+    var e = fpExtent;
+    var h = mesh3d ? mesh3d.height : 1;
+    var size = Math.max(e.x1 - e.x0, e.y1 - e.y0, h * 1.5);
+    cam.target = [(e.x0 + e.x1) / 2, (e.y0 + e.y1) / 2, h / 2];
+    cam.dist = size / (2 * Math.tan(cam.fov * Math.PI / 360)) * 1.15;
+  }
+
+  // Small matrix helpers (column-major 4x4).
+  function perspective(fovy, aspect, near, far) {
+    var f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0];
+  }
+  function lookAt(eye, target, up) {
+    var zx = eye[0] - target[0], zy = eye[1] - target[1], zz = eye[2] - target[2];
+    var l = Math.sqrt(zx * zx + zy * zy + zz * zz) || 1; zx /= l; zy /= l; zz /= l;
+    var xx = up[1] * zz - up[2] * zy, xy = up[2] * zx - up[0] * zz, xz = up[0] * zy - up[1] * zx;
+    l = Math.sqrt(xx * xx + xy * xy + xz * xz) || 1; xx /= l; xy /= l; xz /= l;
+    var yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+    return [xx, yx, zx, 0, xy, yy, zy, 0, xz, yz, zz, 0,
+      -(xx * eye[0] + xy * eye[1] + xz * eye[2]), -(yx * eye[0] + yy * eye[1] + yz * eye[2]), -(zx * eye[0] + zy * eye[1] + zz * eye[2]), 1];
+  }
+  function mul(a, b) {
+    var o = new Array(16);
+    for (var i = 0; i < 4; i++) for (var j = 0; j < 4; j++) {
+      o[j * 4 + i] = a[i] * b[j * 4] + a[4 + i] * b[j * 4 + 1] + a[8 + i] * b[j * 4 + 2] + a[12 + i] * b[j * 4 + 3];
+    }
+    return o;
+  }
+
+  function draw3d() {
+    if (is3dHidden()) return;
+    if (initGL() === false) return;
+    var r = canvas.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(r.width * dpr)); canvas.height = Math.max(1, Math.round(r.height * dpr));
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.91, 0.925, 0.94, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    var cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+    var eye = [cam.target[0] + cam.dist * cp * Math.sin(cam.yaw), cam.target[1] - cam.dist * cp * Math.cos(cam.yaw), cam.target[2] + cam.dist * sp];
+    var up = sp > 0.999 ? [0, 1, 0] : [0, 0, 1];
+    var mv = lookAt(eye, cam.target, up);
+    var p = perspective(cam.fov * Math.PI / 180, canvas.width / canvas.height, cam.dist * 0.01, cam.dist * 10);
+    var mvp = mul(p, mv);
+    gl.uniformMatrix4fv(prog.mvp, false, new Float32Array(mvp)); gl.uniformMatrix4fv(prog.mv, false, new Float32Array(mv));
+    if ($('cfp').checked && fpQuad && fpTex) {
+      gl.uniform1f(prog.useTex, 1); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fpTex); gl.uniform1i(prog.tex, 0);
+      bind(fpQuad.p); bind(fpQuad.n); bind(fpQuad.c); bind(fpQuad.t);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    gl.uniform1f(prog.useTex, 0);
+    gl.disableVertexAttribArray(prog.t); gl.vertexAttrib2f(prog.t, 0, 0);
+    if ($('cmodel').checked && mesh3d) {
+      mesh3d.parts.forEach(function (part) {
+        gl.depthMask(!part.transparent);
+        bind(part.p); bind(part.n); bind(part.c);
+        gl.drawArrays(gl.TRIANGLES, 0, part.p.n);
+      });
+      gl.depthMask(true);
+    }
+    var m = $('msg3d');
+    if (DATA.model_status === 'loading') m.textContent = 'Loading the 3D model…';
+    else if (DATA.model_status === 'none') m.textContent = 'This part has no 3D model in EasyEDA. Showing the footprint only.';
+    else if (DATA.model_status === 'failed') m.textContent = 'The 3D model could not be loaded. Showing the footprint only.';
+    else m.textContent = '';
+  }
+
+  var drag3 = null;
+  canvas.addEventListener('mousedown', function (ev) { drag3 = { x: ev.clientX, y: ev.clientY, b: ev.button, shift: ev.shiftKey }; ev.preventDefault(); });
+  window.addEventListener('mousemove', function (ev) {
+    if (!drag3) return;
+    var dx = ev.clientX - drag3.x, dy = ev.clientY - drag3.y; drag3.x = ev.clientX; drag3.y = ev.clientY;
+    if (drag3.b === 0 && !drag3.shift) {
+      cam.yaw += dx * 0.01; cam.pitch = Math.min(1.56, Math.max(-0.2, cam.pitch + dy * 0.01));
+    } else {
+      var k = cam.dist * 0.0015, cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
+      cam.target[0] -= (dx * cy) * k; cam.target[1] -= (-dx * sy) * k; cam.target[2] += dy * k;
+    }
+    draw3d();
+  });
+  window.addEventListener('mouseup', function () { drag3 = null; });
+  canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  canvas.addEventListener('wheel', function (ev) {
+    ev.preventDefault();
+    cam.dist *= Math.pow(1.0015, ev.deltaY * (ev.deltaMode === 1 ? 20 : 1));
+    cam.dist = Math.max(0.5, Math.min(2000, cam.dist));
+    draw3d();
+  }, { passive: false });
+  $('btop').onclick = function () { cam.yaw = 0; cam.pitch = 1.5699; draw3d(); };
+  $('biso').onclick = function () { cam.yaw = -0.6; cam.pitch = 0.9; draw3d(); };
+  $('bfit3d').onclick = function () { fit3d(); draw3d(); };
+  $('cfp').onchange = draw3d; $('cmodel').onchange = draw3d;
+
+  function setHidden(el, hidden) {
+    el.className = el.className.replace(/\s*\bhidden\b/g, '') + (hidden ? ' hidden' : '');
+  }
+  function show(mode) {
+    var is3d = mode === '3d';
+    $('b2d').className = is3d ? '' : 'on'; $('b3d').className = is3d ? 'on' : '';
+    setHidden($('view2d'), is3d); setHidden($('view3d'), !is3d);
+    setHidden($('tools2d'), is3d); setHidden($('tools3d'), !is3d);
+    if (is3d) {
+      if (initGL() !== false && !mesh3d && DATA.model && DATA.model_status === 'ready') setModel(DATA.model);
+      if (!mesh3d) fit3d();
+      status('Drag to orbit, Shift+drag or right-drag to pan, wheel to zoom.');
+      draw3d();
+    } else { status(''); applyView(); drawMeasure(null); }
+  }
+  $('b2d').onclick = function () { show('2d'); };
+  $('b3d').onclick = function () { show('3d'); };
+
+  // Called from the dialog once the model has downloaded.
+  window.lcscSetModel = function (model) { setModel(model); };
+  window.lcscSetModelStatus = function (s) { DATA.model_status = s; draw3d(); };
+  // For the tests: what the 3D view has, and the colour at the centre of it.
+  window.lcscDebug = function () {
+    var out = { status: DATA.model_status, gl: !!gl, mesh: !!mesh3d, parts: mesh3d ? mesh3d.parts.length : 0,
+                tex: !!fpTex, pads: DATA.pads.length, snaps: snaps.length, grid: $('grid').childNodes.length };
+    if (gl && !is3dHidden()) {
+      draw3d();
+      var px = new Uint8Array(4);
+      gl.readPixels(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      out.centre = [px[0], px[1], px[2]];
+    }
+    return out;
+  };
+
+  applyView();
+})();
+</script>
+</body>
+</html>

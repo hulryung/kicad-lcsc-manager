@@ -93,6 +93,11 @@ Open a **saved** project, then:
 1. Type a part name, value or LCSC number and press **Enter**. Add a package
    (`0603`, `SOT23`, `LQFP`) to narrow the results.
 2. Select a result to see its symbol, footprint and specifications.
+   **Details…** under the footprint opens it in a larger window: zoom and
+   pan, a 0.1–1 mm grid, and **Measure** for the distance between any two
+   points (they snap to pad centres and corners). Hovering a pad shows its
+   number, size and position. The **3D** button stands the part's EasyEDA
+   model on the footprint, to check that the two line up before importing.
 3. Choose what to import (symbol, footprint, 3D model) and click
    **Import Selected**.
 4. Search and import as many parts as you like; click **Close** when done.

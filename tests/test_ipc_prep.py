@@ -122,6 +122,7 @@ from lcsc_manager.dialog_search import LCSCManagerSearchDialog
 from lcsc_manager.dialog import LCSCManagerDialog, OverwriteConfirmDialog
 from lcsc_manager.dialog_settings import SettingsDialog
 from lcsc_manager.dialog_bom import BomImportDialog, _SummaryDialog
+from lcsc_manager.dialog_footprint_detail import FootprintDetailDialog
 from lcsc_manager.bom.bom_parser import parse_bom
 
 def search():
@@ -154,7 +155,10 @@ for label, build in (
         ("overwrite", lambda: OverwriteConfirmDialog(None, {{"symbol": True}}, "R1")),
         ("settings", settings),
         ("bom", lambda: BomImportDialog(None, parse_bom(str(bom)), None, None)),
-        ("bom summary", lambda: _SummaryDialog(None, "t", "x"))):
+        ("bom summary", lambda: _SummaryDialog(None, "t", "x")),
+        ("footprint detail", lambda: FootprintDetailDialog(
+            None, "C1", "R", '<svg viewBox="0 0 10 10"><rect width="5" height="5"/></svg>',
+            {{"x": 0, "y": 0, "width": 10, "height": 10}}, component_data={{}}))):
     w = build(); w.Layout(); w.Destroy()
     print("built", label)
 print("ASSERTS", len(col.msgs))

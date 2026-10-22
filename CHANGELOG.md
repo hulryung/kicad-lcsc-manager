@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Footprint details window.** A **Details…** button under the footprint preview opens the drawing in its own window: zoom and pan, a millimetre grid, a ruler that measures between any two points and snaps to pad centres and corners (with mm or mil readout), pad size and position on hover, and a **3D** view that stands the part's EasyEDA model on the footprint so you can see whether they line up. The model is the same OBJ the import converts to WRL, placed the same way. Needs the WebView backend the previews already use; the 3D view also needs WebGL, and on Windows the window asks for the Edge (WebView2) engine, which has it.
 - **CI.** `.github/workflows/tests.yml` runs the tests on every push and pull request, on Python 3.9 (what KiCad 9 and 10 bundle) and a current Python. The release workflow now runs them too before it builds anything, so a release can't be made from a tree whose tests fail. Until now tests only ran on the maintainer's machine.
 - `scripts/run-tests.py`: one command for the whole suite (`--network` adds the two tests that import real parts; a word filters by file name).
 - Tests that the hash in `repository.json` matches `packages.json` (KiCad rejects the repository otherwise), that the package fields agree between `metadata.json` and `packages.json`, that the bundled libraries are the pinned versions, and that a package with `lib/bin/` is refused.
