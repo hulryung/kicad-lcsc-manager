@@ -233,9 +233,8 @@ if sys.platform == "win32":
                 w.Bind(getattr(html2, name), lambda e, n=name: (probe["events"].append(n + " " + e.GetString()[:160]), e.Skip()))
             w.SetPage("<html><body><script>document.title='t' + (1+1);</script>ok</body></html>", "")
             f.Show(); pump(4.0)
+            # No RunScript here: synchronous, it never returns on Edge.
             probe.update(title=w.GetCurrentTitle(), ua=w.GetUserAgent()[:90])
-            if any(e.startswith("EVT_WEBVIEW_LOADED") for e in probe["events"]):
-                probe["run"] = repr(w.RunScript("1+1"))      # never on a view that didn't load
             out[label] = probe
             f.Destroy()
         except Exception as e:
